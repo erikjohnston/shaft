@@ -34,8 +34,10 @@ extern crate glob;
 extern crate mime_guess;
 extern crate config;
 extern crate sloggers;
+extern crate daemonize;
 
 
+use daemonize::{Daemonize};
 use gleam::Server;
 use futures::Stream;
 use sloggers::Config;
@@ -78,6 +80,11 @@ struct GithubSettings {
 }
 
 #[derive(Debug, Deserialize)]
+struct DaemonizeSettings {
+    pid_file: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct Settings {
     github: GithubSettings,
     database_file: String,
@@ -85,6 +92,7 @@ struct Settings {
     web_root: String,
     bind: String,
     log: sloggers::LoggerConfig,
+    daemonize: Option<DaemonizeSettings>,
 }
 
 
@@ -153,6 +161,13 @@ fn main() {
         protocol.bind_connection(&handle, socket, addr, server_arc.clone());
         Ok(())
     });
+
+    if let Some(daemonize_settings) = settings.daemonize {
+        Daemonize::new()
+            .pid_file(daemonize_settings.pid_file)
+            .start()
+            .expect("be able to daemonize");
+    }
 
     core.run(srv).unwrap();
 }
