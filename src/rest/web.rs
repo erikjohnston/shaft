@@ -64,7 +64,7 @@ fn get_balances(_: Ctx, state: AppState, user: AuthenticatedUser)
         .map_err(InternalServerError::from)
         .and_then(move |all_users| {
             let mut vec = all_users.values().collect_vec();
-            vec.sort_unstable_by_key(|e| e.balance);
+            vec.sort_by_key(|e| e.balance);
 
             let s = hb.render("index", &json!({
                 "display_name": &user.display_name,

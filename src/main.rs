@@ -33,12 +33,11 @@ extern crate linear_map;
 extern crate glob;
 extern crate mime_guess;
 extern crate config;
-extern crate slog_config;
 
 
 use gleam::Server;
 use futures::{Stream};
-use slog::Logger;
+use slog::{Drain, Logger};
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpListener;
 
@@ -46,7 +45,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::rc::Rc;
-use std::collections::BTreeMap;
 
 
 mod db;
@@ -78,11 +76,6 @@ struct GithubSettings {
     required_org: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct LogSettings {
-    output: BTreeMap<String, slog_config::config::Output>
-}
-
 #[derive(Debug, Deserialize)]
 struct Settings {
     github: GithubSettings,
@@ -90,7 +83,6 @@ struct Settings {
     resource_dir: String,
     web_root: String,
     bind: String,
-    log: LogSettings,
 }
 
 
@@ -99,10 +91,9 @@ fn main() {
         .merge(config::File::with_name("settings.toml")).unwrap()
         .deserialize().unwrap();
 
-    let drain = slog_config::from_config(
-        &toml::to_string(&settings.log).unwrap()
-    ).unwrap();
-    let drain = slog::Fuse(drain);
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
     let logger = Logger::root(drain, o!());
 
     // Set up tokio reactor
