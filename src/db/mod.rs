@@ -121,13 +121,13 @@ impl Database for SqliteDatabase {
 
             conn.execute(
                 "INSERT INTO github_users (user_id, github_id)
-                VALUES ($1, $1, $2)",
+                VALUES ($1, $1)",
                 &[&github_user_id],
             )?;
 
              conn.execute(
                 "INSERT INTO users (user_id, display_name)
-                VALUES ($1, $1, $2)",
+                VALUES ($1, $2)",
                 &[&github_user_id, &display_name],
             )?;
 
