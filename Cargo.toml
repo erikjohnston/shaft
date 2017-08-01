@@ -1,0 +1,45 @@
+[package]
+authors = ["Erik Johnston"]
+name = "rust-gleam-shaft"
+version = "0.1.0"
+
+[dependencies]
+anymap = "0.12.1"
+chrono = "0.4.0"
+clap = "2.25.0"
+config = "0.6.0"
+futures = "0.1.14"
+futures-cpupool = "0.1.5"
+glob = "0.2.11"
+handlebars = "0.27.0"
+hyper = "0.11"
+hyper-tls = "0.1.1"
+itertools = "0.6.0"
+mime_guess = "1.8"
+quick-error = "1.2.0"
+r2d2 = "0.7.2"
+r2d2_sqlite = "0.2.0"
+rand = "0.3.15"
+regex = "0.2.2"
+rusqlite = "0.12.0"
+serde = "1.0.8"
+serde_derive = "1.0.8"
+serde_json = "1.0.2"
+serde_urlencoded = "0.5.1"
+slog = "2.0.6"
+slog-async = "2.0.1"
+slog-config = "0.4.0"
+slog-term = "2.0.2"
+tokio-core = "0.1.8"
+toml = "0.4.1"
+url = "1.5.1"
+
+[dependencies.gleam]
+git = "https://github.com/erikjohnston/gleam.git"
+
+[dependencies.gleam_derive]
+git = "https://github.com/erikjohnston/gleam.git"
+
+[dependencies.linear-map]
+features = ["serde_impl"]
+version = "1.2.0"

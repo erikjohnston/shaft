@@ -1,0 +1,104 @@
+{{#*inline "page"}}
+	<!-- you can use the class main-raised if you want the main area to be as a page with shadows -->
+    <div class="container"><div class="row justify-content-md-center">
+        <div class="col-sm-6 col-sm-push-6">
+            <div class="panel panel-accent" id = "amounts">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Balances</h3>
+                </div>
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{#each balances}}
+                            <tr style="cursor: pointer;">
+                                <td data-user-id="{{user_id}}">{{display_name}}</td>
+                                <td>{{pence-as-pounds balance}}</td>
+                            </tr>
+                        {{/each}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="col-sm-6 col-sm-pull-6">
+            <div class="panel panel-dark">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Quick Shaft User</h3>
+                </div>
+                <div class="panel-body">
+                    <form action="shaft" method="post" class="form-horizontal">
+                        <div class="form-group">
+                            <label for="other_user" class="col-md-2 control-label">User</label>
+                            <div class="col-md-10">
+                                <!-- <input type="text" name="other_user" id="other_user" class="form-control" placeholder="User"> -->
+                                <select name="other_user" id="other_user" class="form-control" required>
+                                    <option value="">Please select</option>
+                                    {{#each balances}}
+                                        <option value="{{user_id}}">{{display_name}}</option>
+                                    {{/each}}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="amount" class="col-md-2 control-label">Amount</label>
+                            <div class="col-md-10">
+                                <input type="text" name="amount" id="amount" class="form-control" placeholder="Amount in pence" required pattern="-?\d+" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reason" class="col-md-2 control-label">Reason</label>
+                            <div class="col-md-10">
+                                <input type="text" name="reason" id="reason" class="form-control" placeholder="Reason">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="col-md-offset-2 col-md-10">
+                                <input type="submit" id="form_submit" class="btn btn-default">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="panel panel-dark">
+                <div class="panel-body">
+                    <img
+                        src="static/fox.jpeg"
+                        srcset="static/fox_200.jpeg 200w,
+                            static/fox_300.jpeg 300w,
+                            static/fox_400.jpeg 400w,
+                            static/fox.jpeg 503w"
+                        sizes="(min-width: 770px) 50vw, 100vw"
+                        alt="A fox"
+                    >
+                </div>
+            </div>
+        </div>
+
+    </div>
+    </div>
+{{/inline}}
+
+{{#*inline "end-script"}}
+
+    $( "#amounts tr" ).click(function(event) {
+        var input = $( "#other_user" );
+        var text = $( this ).children("td:first-child").attr("data-user-id");
+
+        input.val(text);
+
+        $( "#amount" ).select();
+    });
+
+    $( "#amounts tr" ).css("cursor", "pointer");
+
+{{/inline}}
+
+{{> base}}

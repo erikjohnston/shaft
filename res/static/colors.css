@@ -1,0 +1,66 @@
+body {
+    background-color: #2D405D;
+    font-size: 1.7em;
+}
+
+.panel {
+    background-color: #F7F5F3;
+}
+
+.panel-heading {
+    background: none;
+    text-align: center;
+    border: none;
+}
+
+.navbar-inverse a, .navbar-inverse .navbar-text  {
+    color: #F7F5F3 !important;
+}
+
+.panel-title {
+    color: inherit;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.panel-body {
+    color: inherit;
+}
+
+.panel {
+    padding: 10px;
+    border-radius: 10px;
+}
+
+.panel-dark {
+    background-color: rgb(30, 41, 57);
+    color: #F7F5F3;
+    border-color: #F7F5F3;
+}
+
+.panel-accent {
+    background-color: #82748B;
+    color: #F7F5F3;
+    border-color: #F7F5F3;
+}
+
+.panel-accent .table>thead>tr>th, .table>tbody>tr>th, .table>tfoot>tr>th, .table>thead>tr>td, .table>tbody>tr>td, .table>tfoot>tr>td {
+    border-top: 1px solid #908596;
+}
+
+.panel-accent .table-hover>tbody>tr:hover {
+    background-color: #908596;
+}
+
+.panel img {
+    display: block;
+    width: 100%;
+    height: auto;
+
+    border-radius: 10px;
+}
+
+
+.table tr :last-child {
+    text-align: right;
+}

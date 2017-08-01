@@ -1,0 +1,45 @@
+{{#*inline "css"}}
+
+@media (max-width: 768px) {
+    table {
+        font-size: 10px;
+    }
+}
+
+{{/inline}}
+
+{{#*inline "page"}}
+	<div class="container"><div class="row justify-content-md-center">
+        <div class="col-sm-12">
+            <div class="panel panel-accent" id = "amounts">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Transactions</h3>
+                </div>
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Shafter</th>
+                            <th>Shaftee</th>
+                            <th>Amount</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{#each transactions}}
+                            <tr style="cursor: pointer;">
+                                <td>{{date}}</td>
+                                <td>{{shafter_name}}</td>
+                                <td>{{shaftee_name}}</td>
+                                <td>{{pence-as-pounds amount}}</td>
+                                <td>{{reason}}</td>
+                            </tr>
+                        {{/each}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+	</div>
+{{/inline}}
+
+{{> base}}
