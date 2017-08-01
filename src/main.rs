@@ -104,6 +104,23 @@ fn main() {
 
     let logger = settings.log.build_logger().unwrap();
 
+    let addr = String::from(settings.bind).parse().unwrap();
+    let blocking_listener = net::TcpListener::bind(&addr).unwrap();
+
+    let mut hb = handlebars::Handlebars::new();
+
+    load_template!(logger, hb, &settings.resource_dir, "index");
+    load_template!(logger, hb, &settings.resource_dir, "login");
+    load_template!(logger, hb, &settings.resource_dir, "transactions");
+    load_template!(logger, hb, &settings.resource_dir, "base");
+
+    if let Some(daemonize_settings) = settings.daemonize {
+        Daemonize::new()
+            .pid_file(daemonize_settings.pid_file)
+            .start()
+            .expect("be able to daemonize");
+    }
+
     let mut server = Server::with_logger(logger.clone());
 
     // Set up all the state for the server to manage, e.g. database,
@@ -123,14 +140,9 @@ fn main() {
         github_state,
         web_root: settings.web_root.clone(),
         required_org: settings.github.required_org.clone(),
+        resource_dir: settings.resource_dir.clone(),
     });
 
-    let mut hb = handlebars::Handlebars::new();
-
-    load_template!(logger, hb, &settings.resource_dir, "index");
-    load_template!(logger, hb, &settings.resource_dir, "login");
-    load_template!(logger, hb, &settings.resource_dir, "transactions");
-    load_template!(logger, hb, &settings.resource_dir, "base");
     hb.register_helper("pence-as-pounds", Box::new(rest::format_pence_as_pounds_helper));
 
     server.manage_state(Rc::new(hb));
@@ -140,16 +152,6 @@ fn main() {
 
     // Now actually register the various servlets
     rest::register_servlets(&mut server);
-
-    let addr = String::from(settings.bind).parse().unwrap();
-    let blocking_listener = net::TcpListener::bind(&addr).unwrap();
-
-    if let Some(daemonize_settings) = settings.daemonize {
-        Daemonize::new()
-            .pid_file(daemonize_settings.pid_file)
-            .start()
-            .expect("be able to daemonize");
-    }
 
     // Set up tokio reactor
     let mut core = Core::new().unwrap();

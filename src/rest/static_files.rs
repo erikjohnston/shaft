@@ -29,7 +29,7 @@ fn render_static(_: Ctx, state: AppState, req: StaticRequest)
         ).boxed();
     }
 
-    let fs_path = format!("resources{}", req.path);
+    let fs_path = format!("{}/{}", state.config.resource_dir, req.path);
 
     if fs_path.contains("./") || fs_path.contains("../") {
         return future::err(NotFound.into()).boxed();

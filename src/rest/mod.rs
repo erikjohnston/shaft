@@ -53,6 +53,7 @@ pub struct AppConfig {
     pub github_state: String,
     pub web_root: String,
     pub required_org: String,
+    pub resource_dir: String,
 }
 
 
