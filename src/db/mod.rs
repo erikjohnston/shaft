@@ -120,12 +120,16 @@ impl Database for SqliteDatabase {
             let conn = db_pool.get()?;
 
             conn.execute(
-                "INSERT INTO github_users (user_id, github_id, display_name)
+                "INSERT INTO github_users (user_id, github_id)
+                VALUES ($1, $1, $2)",
+                &[&github_user_id],
+            )?;
+
+             conn.execute(
+                "INSERT INTO users (user_id, display_name)
                 VALUES ($1, $1, $2)",
                 &[&github_user_id, &display_name],
             )?;
-
-            // TODO: Handle clashing user IDs
 
             Ok(github_user_id)
         }).boxed()
