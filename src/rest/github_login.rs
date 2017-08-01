@@ -90,7 +90,8 @@ fn github_callback(
                                     if opt.is_some() {
                                         future::Either::A(
                                             db.add_user_by_github_id(
-                                                github_user_id, github_name
+                                                github_user_id.clone(),
+                                                github_name.unwrap_or(github_user_id)
                                             )
                                                 .map_err(|e| format!("{}", e))
                                         )

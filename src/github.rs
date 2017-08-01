@@ -18,6 +18,9 @@ pub struct GithubApi {
 quick_error!{
     #[derive(Debug)]
     pub enum HttpError {
+        DeserializeError(err: serde_json::Error) {
+            from()
+        }
         Http(err: hyper::Error) {
             from()
         }
@@ -123,7 +126,7 @@ where
             res.body().concat2().from_err()
         })
         .and_then(|vec| -> Result<C, _> {
-            let res = serde_json::from_slice(&vec[..]).unwrap();
+            let res = serde_json::from_slice(&vec[..])?;
 
             Ok(res)
         });
@@ -142,7 +145,7 @@ pub struct GithubCallbackAuthResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubUserResponse {
     pub login: String,
-    pub name: String,
+    pub name: Option<String>,
 }
 
 
