@@ -48,6 +48,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::rc::Rc;
+use std::net;
 
 
 mod db;
@@ -103,10 +104,6 @@ fn main() {
 
     let logger = settings.log.build_logger().unwrap();
 
-    // Set up tokio reactor
-    let mut core = Core::new().unwrap();
-    let handle = core.handle();
-
     let mut server = Server::with_logger(logger.clone());
 
     // Set up all the state for the server to manage, e.g. database,
@@ -115,12 +112,6 @@ fn main() {
         db::SqliteDatabase::with_path(settings.database_file)
     );
     server.manage_state(db);
-
-    let client = hyper::Client::configure()
-        .connector(hyper_tls::HttpsConnector::new(4, &handle).unwrap())
-        .build(&handle);
-
-    server.manage_state(Rc::new(client));
 
     let github_client_id = settings.github.client_id.clone();
     let github_client_secret = settings.github.client_secret.clone();
@@ -150,17 +141,8 @@ fn main() {
     // Now actually register the various servlets
     rest::register_servlets(&mut server);
 
-    // Start up the server ...
-
     let addr = String::from(settings.bind).parse().unwrap();
-    let listener = TcpListener::bind(&addr, &handle).unwrap();
-    let protocol = hyper::server::Http::new();
-
-    let server_arc = Rc::new(server);
-    let srv = listener.incoming().for_each(|(socket, addr)| {
-        protocol.bind_connection(&handle, socket, addr, server_arc.clone());
-        Ok(())
-    });
+    let blocking_listener = net::TcpListener::bind(&addr).unwrap();
 
     if let Some(daemonize_settings) = settings.daemonize {
         Daemonize::new()
@@ -168,6 +150,26 @@ fn main() {
             .start()
             .expect("be able to daemonize");
     }
+
+    // Set up tokio reactor
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
+
+    let client = hyper::Client::configure()
+        .connector(hyper_tls::HttpsConnector::new(4, &handle).unwrap())
+        .build(&handle);
+
+    server.manage_state(Rc::new(client));
+
+    // Start up the server ...
+    let listener = TcpListener::from_listener(blocking_listener, &addr, &handle).unwrap();
+    let protocol = hyper::server::Http::new();
+
+    let server_arc = Rc::new(server);
+    let srv = listener.incoming().for_each(|(socket, addr)| {
+        protocol.bind_connection(&handle, socket, addr, server_arc.clone());
+        Ok(())
+    });
 
     core.run(srv).unwrap();
 }
