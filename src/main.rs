@@ -33,11 +33,12 @@ extern crate linear_map;
 extern crate glob;
 extern crate mime_guess;
 extern crate config;
+extern crate sloggers;
 
 
 use gleam::Server;
-use futures::{Stream};
-use slog::{Drain, Logger};
+use futures::Stream;
+use sloggers::Config;
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpListener;
 
@@ -83,6 +84,7 @@ struct Settings {
     resource_dir: String,
     web_root: String,
     bind: String,
+    log: sloggers::LoggerConfig,
 }
 
 
@@ -91,10 +93,7 @@ fn main() {
         .merge(config::File::with_name("settings.toml")).unwrap()
         .deserialize().unwrap();
 
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-    let logger = Logger::root(drain, o!());
+    let logger = settings.log.build_logger().unwrap();
 
     // Set up tokio reactor
     let mut core = Core::new().unwrap();
