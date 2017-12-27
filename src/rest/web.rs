@@ -46,13 +46,14 @@ fn root(_: Ctx, state: AppState, req: CookieRequest)
 
         Box::new(f)
     } else {
-        Ok(
+        let f = Ok(
             Response::new()
                 .with_status(StatusCode::Found)
                 .with_header(Location::new("login"))
         )
-        .into_future()
-        .boxed()
+        .into_future();
+
+        Box::new(f)
     }
 }
 
@@ -173,21 +174,22 @@ fn logout(ctx: Ctx, state: AppState, req: CookieRequest)
         ctx, "Got logout request"
     );
 
-    let f = req.header_cookie.and_then(|header_cookie|{
-            Cookie::parse_header(&header_cookie.into()).ok()
-        })
-        .and_then(|cookie| {
-            cookie.get("token").map(String::from)
-        })
-        .map(|token| {
+    let token_opt = req.header_cookie.and_then(|header_cookie|{
+        Cookie::parse_header(&header_cookie.into()).ok()
+    })
+    .and_then(|cookie| {
+        cookie.get("token").map(String::from)
+    });
+
+    if let Some(token) = token_opt {
+        Box::new(
             db.delete_token(token)
                 .map_err(InternalServerError::from)
-                .boxed()
-        })
-        .unwrap_or_else(|| Ok(()).into_future().boxed())
-        .map(|_| resp);
-
-    Box::new(f)
+                .map(|_| resp)
+        )
+    } else {
+        Box::new(Ok(resp).into_future())
+    }
 }
 
 

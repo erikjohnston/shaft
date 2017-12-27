@@ -24,19 +24,19 @@ fn render_static(_: Ctx, state: AppState, req: StaticRequest)
     -> Box<Future<Item = Response, Error = HttpError>>
 {
     if !req.path.starts_with("/static/") {
-        return future::err(
+        return Box::new(future::err(
             InternalServerError("Invalid static path".into()).into()
-        ).boxed();
+        ));
     }
 
     let fs_path = format!("{}/{}", state.config.resource_dir, req.path);
 
     if fs_path.contains("./") || fs_path.contains("../") {
-        return future::err(NotFound.into()).boxed();
+        return Box::new(future::err(NotFound.into()));
     }
 
     if Path::new(&fs_path).is_file() {
-        return state.cpu_pool.spawn_fn(move || {
+        return Box::new(state.cpu_pool.spawn_fn(move || {
             let mut f = File::open(&fs_path).unwrap();
 
             let mut source = Vec::new();
@@ -47,8 +47,8 @@ fn render_static(_: Ctx, state: AppState, req: StaticRequest)
                     .with_header(ContentLength(source.len() as u64))
                     .with_body(source)
             )
-        }).boxed()
+        }))
     } else {
-        return future::err(NotFound.into()).boxed();
+        return Box::new(future::err(NotFound.into()));
     }
 }

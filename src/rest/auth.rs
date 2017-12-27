@@ -70,10 +70,10 @@ pub fn get_user_from_cookie(db: Rc<db::Database>, cookie: &Cookie)
     -> Box<Future<Item=Option<db::User>, Error=InternalServerError>>
 {
     if let Some(token) = cookie.get("token").map(String::from) {
-        db.get_user_from_token(token)
-            .map_err(InternalServerError::from)
-            .boxed()
+        let f = db.get_user_from_token(token)
+            .map_err(InternalServerError::from);
+        Box::new(f)
     } else {
-        Ok(None).into_future().boxed()
+        Box::new(Ok(None).into_future())
     }
 }

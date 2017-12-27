@@ -1,7 +1,7 @@
 use chrono;
 use chrono::TimeZone;
 use futures_cpupool::CpuPool;
-use futures::{BoxFuture, Future};
+use futures::Future;
 use r2d2;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite;
@@ -33,31 +33,31 @@ pub struct User {
 
 pub trait Database: Send + Sync {
     fn get_user_by_github_id(&self, github_user_id: String)
-        -> BoxFuture<Option<String>, DatabaseError>;
+        -> Box<Future<Item=Option<String>, Error=DatabaseError>>;
 
     fn add_user_by_github_id(&self, github_user_id: String, display_name: String)
-        -> BoxFuture<String, DatabaseError>;
+        -> Box<Future<Item=String, Error=DatabaseError>>;
 
     fn create_token_for_user(&self, user_id: String)
-        -> BoxFuture<String, DatabaseError>;
+        -> Box<Future<Item=String, Error=DatabaseError>>;
 
     fn delete_token(&self, token: String)
-        -> BoxFuture<(), DatabaseError>;
+        -> Box<Future<Item=(), Error=DatabaseError>>;
 
     fn get_user_from_token(&self, token: String)
-        -> BoxFuture<Option<User>, DatabaseError>;
+        -> Box<Future<Item=Option<User>, Error=DatabaseError>>;
 
     fn get_balance_for_user(&self, user: String)
-        -> BoxFuture<i64, DatabaseError>;
+        -> Box<Future<Item=i64, Error=DatabaseError>>;
 
     fn get_all_users(&self)
-        -> BoxFuture<LinearMap<String, User>, DatabaseError>;
+        -> Box<Future<Item=LinearMap<String, User>, Error=DatabaseError>>;
 
     fn shaft_user(&self, transaction: Transaction)
-        -> BoxFuture<(), ShaftUserError>;
+        -> Box<Future<Item=(), Error=ShaftUserError>>;
 
     fn get_last_transactions(&self, limit: u32)
-        -> BoxFuture<Vec<Transaction>, DatabaseError>;
+        -> Box<Future<Item=Vec<Transaction>, Error=DatabaseError>>;
 }
 
 
@@ -83,11 +83,11 @@ impl SqliteDatabase {
 
 impl Database for SqliteDatabase {
     fn get_user_by_github_id(&self, github_user_id: String)
-        -> BoxFuture<Option<String>, DatabaseError>
+        -> Box<Future<Item=Option<String>, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             let row = conn.query_row(
@@ -107,15 +107,17 @@ impl Database for SqliteDatabase {
             })?;
 
             Ok(row)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn add_user_by_github_id(&self, github_user_id: String, display_name: String)
-        -> BoxFuture<String, DatabaseError>
+        -> Box<Future<Item=String, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             conn.execute(
@@ -131,15 +133,17 @@ impl Database for SqliteDatabase {
             )?;
 
             Ok(github_user_id)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn create_token_for_user(&self, user_id: String)
-        -> BoxFuture<String, DatabaseError>
+        -> Box<Future<Item=String, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             let token: String = thread_rng().gen_ascii_chars().take(32).collect();
@@ -150,15 +154,17 @@ impl Database for SqliteDatabase {
             )?;
 
             Ok(token)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn delete_token(&self, token: String)
-        -> BoxFuture<(), DatabaseError>
+        -> Box<Future<Item=(), Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             conn.execute(
@@ -167,15 +173,17 @@ impl Database for SqliteDatabase {
             )?;
 
             Ok(())
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn get_user_from_token(&self, token: String)
-        -> BoxFuture<Option<User>, DatabaseError>
+        -> Box<Future<Item=Option<User>, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             let row = conn.query_row(
@@ -215,15 +223,17 @@ impl Database for SqliteDatabase {
             })?;
 
             Ok(row)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn get_balance_for_user(&self, user: String)
-        -> BoxFuture<i64, DatabaseError>
+        -> Box<Future<Item=i64, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             let row = conn.query_row(
@@ -243,15 +253,17 @@ impl Database for SqliteDatabase {
             )?;
 
             Ok(row)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn get_all_users(&self)
-        -> BoxFuture<LinearMap<String, User>, DatabaseError>
+        -> Box<Future<Item=LinearMap<String, User>, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             let mut stmt = conn.prepare(
@@ -285,15 +297,17 @@ impl Database for SqliteDatabase {
             )?.collect();
 
             Ok(rows?)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn shaft_user(&self, transaction: Transaction)
-        -> BoxFuture<(), ShaftUserError>
+        -> Box<Future<Item=(), Error=ShaftUserError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, ShaftUserError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, ShaftUserError>  {
             let conn = db_pool.get()?;
 
             match conn.query_row(
@@ -324,15 +338,17 @@ impl Database for SqliteDatabase {
             ])?;
 
             Ok(())
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 
     fn get_last_transactions(&self, limit: u32)
-        -> BoxFuture<Vec<Transaction>, DatabaseError>
+        -> Box<Future<Item=Vec<Transaction>, Error=DatabaseError>>
     {
         let db_pool = self.db_pool.clone();
 
-        self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError>  {
             let conn = db_pool.get()?;
 
             let mut stmt = conn.prepare(
@@ -357,7 +373,9 @@ impl Database for SqliteDatabase {
             )?.collect();
 
             Ok(rows?)
-        }).boxed()
+        });
+
+        Box::new(f)
     }
 }
 
