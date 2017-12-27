@@ -98,9 +98,10 @@ struct Settings {
 
 
 fn main() {
-    let settings: Settings = config::Config::default()
-        .merge(config::File::with_name("settings.toml")).unwrap()
-        .deserialize().unwrap();
+    let mut c = config::Config::new();
+    c.merge(config::File::with_name("settings.toml")).unwrap();
+
+    let settings: Settings = c.try_into().unwrap();
 
     let logger = settings.log.build_logger().unwrap();
 

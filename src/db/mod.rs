@@ -70,9 +70,8 @@ pub struct SqliteDatabase {
 
 impl SqliteDatabase {
     pub fn with_path<P: AsRef<Path>>(path: P) -> SqliteDatabase {
-        let config = r2d2::Config::default();
-        let manager = SqliteConnectionManager::new(path);
-        let pool = r2d2::Pool::new(config, manager).unwrap();
+        let manager = SqliteConnectionManager::file(path);
+        let pool = r2d2::Pool::new(manager).unwrap();
 
         SqliteDatabase {
             cpu_pool: CpuPool::new_num_cpus(),
@@ -366,7 +365,7 @@ impl Database for SqliteDatabase {
 quick_error! {
     #[derive(Debug)]
     pub enum DatabaseError {
-        ConnectionPool(err: r2d2::GetTimeout) {
+        ConnectionPool(err: r2d2::Error) {
             from()
             display("DB Pool error: {}", err)
         }
@@ -383,7 +382,7 @@ quick_error! {
     pub enum ShaftUserError {
         Database(err: DatabaseError) {
             from()
-            from(e: r2d2::GetTimeout) -> (DatabaseError::from(e))
+            from(e: r2d2::Error) -> (DatabaseError::from(e))
             from(e: rusqlite::Error) -> (DatabaseError::from(e))
             display("{}", err)
         }
