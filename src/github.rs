@@ -1,21 +1,18 @@
-use hyper;
-use hyper::{Request, StatusCode, Method};
-use hyper::header::{Accept, Authorization, UserAgent};
 use futures::{Future, Stream};
+use hyper;
+use hyper::{Body, Request, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_json;
 use url::Url;
 
-use HttpClient;
-
+use crate::HttpClient;
 
 #[derive(Debug, Clone)]
 pub struct GithubApi {
     pub http_client: HttpClient,
 }
 
-
-quick_error!{
+quick_error! {
     #[derive(Debug)]
     pub enum HttpError {
         DeserializeError(err: serde_json::Error) {
@@ -32,7 +29,6 @@ quick_error!{
     }
 }
 
-
 impl GithubApi {
     pub fn exchange_oauth_code(
         &self,
@@ -47,12 +43,10 @@ impl GithubApi {
             .append_pair("client_secret", client_secret)
             .append_pair("code", code);
 
-        let url = gh.to_string().parse().unwrap();
+        let mut req = Request::post(gh.to_string());
+        req.header(hyper::header::ACCEPT, "application/json");
 
-        let mut req = Request::new(Method::Post, url);
-        req.headers_mut().set(Accept::json());
-
-        let f = parse_resp_as_json(self.http_client.request(req));
+        let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()));
 
         Box::new(f)
     }
@@ -61,15 +55,14 @@ impl GithubApi {
         &self,
         token: &str,
     ) -> Box<Future<Item = GithubUserResponse, Error = HttpError>> {
-        let url = "https://api.github.com/user".parse().unwrap();
+        let url = "https://api.github.com/user";
 
-        let mut req = Request::new(Method::Get, url);
-        req.headers_mut().set(Accept::json());
-        req.headers_mut().set(UserAgent::new("rust-gleam-shaft"));
-        req.headers_mut()
-            .set(Authorization(format!("token {}", token)));
+        let mut req = Request::get(url);
+        req.header(hyper::header::ACCEPT, "application/json");
+        req.header(hyper::header::USER_AGENT, "rust shaft");
+        req.header(hyper::header::AUTHORIZATION, format!("token {}", token));
 
-        let f = parse_resp_as_json(self.http_client.request(req));
+        let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()));
 
         Box::new(f)
     }
@@ -79,21 +72,18 @@ impl GithubApi {
         token: &str,
         org: &str,
     ) -> Box<Future<Item = Option<GithubOrganizationMembership>, Error = HttpError>> {
-        let url = format!("https://api.github.com/user/memberships/orgs/{}", org)
-            .parse()
-            .unwrap();
+        let url = format!("https://api.github.com/user/memberships/orgs/{}", org);
 
-        let mut req = Request::new(Method::Get, url);
-        req.headers_mut().set(Accept::json());
-        req.headers_mut().set(UserAgent::new("rust-gleam-shaft"));
-        req.headers_mut()
-            .set(Authorization(format!("token {}", token)));
+        let mut req = Request::get(url);
+        req.header(hyper::header::ACCEPT, "application/json");
+        req.header(hyper::header::USER_AGENT, "rust shaft");
+        req.header(hyper::header::AUTHORIZATION, format!("token {}", token));
 
-        let f = parse_resp_as_json(self.http_client.request(req))
-            .map(|org| Some(org))
+        let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()))
+            .map(Some)
             .or_else(|err| {
                 if let HttpError::Status(status) = err {
-                    if status == StatusCode::Forbidden {
+                    if status == StatusCode::FORBIDDEN {
                         Ok(None)
                     } else {
                         Err(err)
@@ -107,13 +97,13 @@ impl GithubApi {
     }
 }
 
-
 fn parse_resp_as_json<F, C>(resp: F) -> Box<Future<Item = C, Error = HttpError>>
 where
-    F: Future<Item = hyper::Response, Error = hyper::Error> + 'static,
+    F: Future<Item = hyper::Response<Body>, Error = hyper::Error> + 'static,
     C: DeserializeOwned + 'static,
 {
-    let f = resp.from_err()
+    let f = resp
+        .from_err()
         .and_then(|res| -> Result<_, HttpError> {
             if res.status().is_success() {
                 Ok(res)
@@ -123,7 +113,7 @@ where
         })
         .and_then(|res| {
             // TODO: Limit max amount read
-            res.body().concat2().from_err()
+            res.into_body().concat2().from_err()
         })
         .and_then(|vec| -> Result<C, _> {
             let res = serde_json::from_slice(&vec[..])?;
@@ -134,20 +124,17 @@ where
     Box::new(f)
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubCallbackAuthResponse {
     pub access_token: String,
     pub scope: String,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubUserResponse {
     pub login: String,
     pub name: Option<String>,
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubOrganizationMembership {

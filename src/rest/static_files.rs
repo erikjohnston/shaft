@@ -1,54 +1,8 @@
-use gleam::{Ctx, Server};
-use hyper::{self, Method, Response};
-use hyper::header::ContentLength;
-use futures::Future;
-use futures::future;
+use crate::rest::AppState;
+use actix_web::{fs, App};
 
-use std::path::Path;
-use std::fs::File;
-use std::io::Read;
+pub fn register_servlets(app: App<AppState>) -> App<AppState> {
+    let dir = app.state().config.resource_dir.clone();
 
-use rest::{AppState, InternalServerError, HttpError, NotFound};
-
-
-pub fn register_servlets(server: &mut Server) {
-    server.add_route(Method::Get, "/static/*", render_static);
-}
-
-#[derive(GleamFromRequest)]
-struct StaticRequest {
-    path: String,
-}
-
-fn render_static(_: Ctx, state: AppState, req: StaticRequest)
-    -> Box<Future<Item = Response, Error = HttpError>>
-{
-    if !req.path.starts_with("/static/") {
-        return Box::new(future::err(
-            InternalServerError("Invalid static path".into()).into()
-        ));
-    }
-
-    let fs_path = format!("{}/{}", state.config.resource_dir, req.path);
-
-    if fs_path.contains("./") || fs_path.contains("../") {
-        return Box::new(future::err(NotFound.into()));
-    }
-
-    if Path::new(&fs_path).is_file() {
-        return Box::new(state.cpu_pool.spawn_fn(move || {
-            let mut f = File::open(&fs_path).unwrap();
-
-            let mut source = Vec::new();
-            f.read_to_end(&mut source).unwrap();
-
-            Ok(
-                Response::new()
-                    .with_header(ContentLength(source.len() as u64))
-                    .with_body(source)
-            )
-        }))
-    } else {
-        return Box::new(future::err(NotFound.into()));
-    }
+    app.handler("/static", fs::StaticFiles::new(dir).unwrap())
 }

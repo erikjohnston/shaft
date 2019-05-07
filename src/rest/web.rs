@@ -1,113 +1,121 @@
-use gleam::{Ctx, Server};
+use actix_web::{error, App, Error, Form, HttpRequest, HttpResponse};
 use chrono;
-use hyper::{self, Method, Response, StatusCode};
-use hyper::header::{Header, Cookie, Location, SetCookie};
 use futures::{Future, IntoFuture};
+use hyper::header::{LOCATION, SET_COOKIE};
+use hyper::Method;
 use itertools::Itertools;
 
-use db;
-use rest::{AppState, AuthenticatedUser, InternalServerError, Html, ShaftUserBody};
-use rest::body_parser::FormUrlEncoded;
-use rest::auth::get_user_from_cookie;
+use crate::db;
+use crate::rest::auth::get_user_from_cookie;
+use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 
+use slog::Logger;
 
-
-pub fn register_servlets(server: &mut Server) {
-    server.add_route(Method::Get, "/", root);
-    server.add_route(Method::Get, "/home", get_balances);
-    server.add_route(Method::Get, "/login", show_login);
-    server.add_route(Method::Post, "/logout", logout);
-    server.add_route(Method::Get, "/transactions", get_transactions);
-    server.add_route_with_body(Method::Post, "/shaft", shaft_user);
+pub fn register_servlets(app: App<AppState>) -> App<AppState> {
+    app.resource(r"/", |r| r.method(Method::GET).f(root))
+        .resource(r"/home", |r| r.method(Method::GET).with(get_balances))
+        .resource(r"/login", |r| r.method(Method::GET).f(show_login))
+        .resource(r"/logout", |r| r.method(Method::POST).f(logout))
+        .resource(r"/transactions", |r| {
+            r.method(Method::GET).with(get_transactions)
+        })
+        .resource(r"/shaft", |r| r.method(Method::POST).with(shaft_user))
 }
 
-
-fn root(_: Ctx, state: AppState, req: CookieRequest)
-    -> Box<Future<Item = Response, Error = InternalServerError>>
-{
-    if let Some (header_cookie) = req.header_cookie {
-        let f = Cookie::parse_header(&header_cookie.into())
-            .map_err(InternalServerError::from)
-            .into_future()
-            .and_then(move |cookie| {
-                get_user_from_cookie(state.db.clone(), &cookie)
-            })
+fn root(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    if let Some(token) = req.cookie("token") {
+        let f = get_user_from_cookie(req.state().database.as_ref(), &token)
             .map(move |user_opt| {
                 if user_opt.is_some() {
-                    Response::new()
-                        .with_status(StatusCode::Found)
-                        .with_header(Location::new("home"))
+                    HttpResponse::Found().header(LOCATION, "home").finish()
                 } else {
-                    Response::new()
-                        .with_status(StatusCode::Found)
-                        .with_header(Location::new("login"))
+                    HttpResponse::Found().header(LOCATION, "login").finish()
                 }
-            });
+            })
+            .map_err(error::ErrorInternalServerError);
 
         Box::new(f)
     } else {
-        let f = Ok(
-            Response::new()
-                .with_status(StatusCode::Found)
-                .with_header(Location::new("login"))
-        )
-        .into_future();
+        let f = futures::future::ok(HttpResponse::Found().header(LOCATION, "login").finish());
 
         Box::new(f)
     }
 }
 
-fn get_balances(_: Ctx, state: AppState, user: AuthenticatedUser)
-    -> Box<Future<Item = Html, Error = InternalServerError>>
-{
-    let hb = state.handlebars.clone();
-    let f = state.db.get_all_users()
-        .map_err(InternalServerError::from)
+fn get_balances(
+    (user, req): (AuthenticatedUser, HttpRequest<AppState>),
+) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    let hb = req.state().handlebars.clone();
+    let f = req
+        .state()
+        .database
+        .get_all_users()
+        .map_err(error::ErrorInternalServerError)
         .and_then(move |all_users| {
             let mut vec = all_users.values().collect_vec();
             vec.sort_by_key(|e| e.balance);
 
-            let s = hb.render("index", &json!({
-                "display_name": &user.display_name,
-                "balances": vec,
-            }))?;
+            let s = hb
+                .render(
+                    "index",
+                    &json!({
+                        "display_name": &user.display_name,
+                        "balances": vec,
+                    }),
+                )
+                .map_err(|s| error::ErrorInternalServerError(s.to_string()))?;
 
-            Ok(Html(s))
-        })
-        .from_err();
+            let r = HttpResponse::Ok()
+                .content_type("text/html")
+                .content_length(s.len() as u64)
+                .body(s);
+
+            Ok(r)
+        });
 
     Box::new(f)
 }
 
-fn get_transactions(_: Ctx, state: AppState, user: AuthenticatedUser)
-    -> Box<Future<Item = Html, Error = InternalServerError>>
-{
-    let hb = state.handlebars.clone();
-    let f = state.db.get_all_users()
-        .join(state.db.get_last_transactions(20))
-        .map_err(InternalServerError::from)
+fn get_transactions(
+    (user, req): (AuthenticatedUser, HttpRequest<AppState>),
+) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    let hb = req.state().handlebars.clone();
+    let f = req
+        .state()
+        .database
+        .get_all_users()
+        .join(req.state().database.get_last_transactions(20))
+        .map_err(error::ErrorInternalServerError)
         .and_then(move |(all_users, transactions)| {
-            let s = hb.render("transactions", &json!({
-                "display_name": &user.display_name,
-                "transactions": transactions
-                    .into_iter()
-                    .map(|txn| json!({
-                        "amount": txn.amount,
-                        "shafter_id": txn.shafter,
-                        "shafter_name": all_users.get(&txn.shafter)
-                            .map(|u| &u.display_name as &str)
-                            .unwrap_or(&txn.shafter),
-                        "shaftee_id": txn.shaftee,
-                        "shaftee_name": all_users.get(&txn.shaftee)
-                            .map(|u| &u.display_name as &str)
-                            .unwrap_or(&txn.shaftee),
-                        "date": format!("{}", txn.datetime.format("%d %b %Y")),
-                        "reason": txn.reason,
-                    }))
-                    .collect_vec(),
-            }))?;
-
-            Ok(Html(s))
+            hb.render(
+                "transactions",
+                &json!({
+                    "display_name": &user.display_name,
+                    "transactions": transactions
+                        .into_iter()
+                        .map(|txn| json!({
+                            "amount": txn.amount,
+                            "shafter_id": txn.shafter,
+                            "shafter_name": all_users.get(&txn.shafter)
+                                .map(|u| &u.display_name as &str)
+                                .unwrap_or(&txn.shafter),
+                            "shaftee_id": txn.shaftee,
+                            "shaftee_name": all_users.get(&txn.shaftee)
+                                .map(|u| &u.display_name as &str)
+                                .unwrap_or(&txn.shaftee),
+                            "date": format!("{}", txn.datetime.format("%d %b %Y")),
+                            "reason": txn.reason,
+                        }))
+                        .collect_vec(),
+                }),
+            )
+            .map_err(|s| error::ErrorInternalServerError(s.to_string()))
+        })
+        .map(|s| {
+            HttpResponse::Ok()
+                .content_type("text/html")
+                .content_length(s.len() as u64)
+                .body(s)
         })
         .from_err();
 
@@ -115,85 +123,89 @@ fn get_transactions(_: Ctx, state: AppState, user: AuthenticatedUser)
 }
 
 fn shaft_user(
-    ctx: Ctx,
-    state: AppState,
-    req: AuthenticatedUser,
-    body: FormUrlEncoded<ShaftUserBody>
-)
-    -> Box<Future<Item = Response, Error = InternalServerError>>
-{
-    let ShaftUserBody { other_user, amount, reason } = body.0;
+    (user, req, body): (
+        AuthenticatedUser,
+        HttpRequest<AppState>,
+        Form<ShaftUserBody>,
+    ),
+) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    let logger = req
+        .extensions()
+        .get::<Logger>()
+        .expect("no logger installed in request")
+        .clone();
 
-    let f = state.db.shaft_user(db::Transaction {
-            shafter: req.user_id.clone(),
+    let ShaftUserBody {
+        other_user,
+        amount,
+        reason,
+    } = body.0;
+
+    let f = req
+        .state()
+        .database
+        .shaft_user(db::Transaction {
+            shafter: user.user_id.clone(),
             shaftee: other_user.clone(),
-            amount: amount,
+            amount,
             datetime: chrono::Utc::now(),
-            reason: reason,
+            reason,
         })
-        .from_err()
+        .map_err(error::ErrorInternalServerError)
         .map(move |_| {
             info!(
-                ctx, "Shafted user";
+                logger, "Shafted user";
                 "other_user" => other_user, "amount" => amount
             );
 
-            Response::new()
-                .with_status(StatusCode::Found)
-                .with_body("Success\n")
-                .with_header(Location::new("."))
+            HttpResponse::Found()
+                .header(LOCATION, ".")
+                .body("Success\n")
         });
 
     Box::new(f)
 }
 
+fn show_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
+    let hb = &req.state().handlebars;
+    let s = hb
+        .render("login", &json!({}))
+        .map_err(|s| error::ErrorInternalServerError(s.to_string()))?;
 
-fn show_login(_: Ctx, state: AppState, _: ())
-    -> Result<Html, InternalServerError>
-{
-    let hb = state.handlebars.clone();
-    let s = hb.render("login", &json!({}))?;
+    let r = HttpResponse::Ok()
+        .content_type("text/html")
+        .content_length(s.len() as u64)
+        .body(s);
 
-    Ok(Html(s))
+    Ok(r)
 }
 
-fn logout(ctx: Ctx, state: AppState, req: CookieRequest)
-    -> Box<Future<Item = Response, Error = InternalServerError>>
-{
-    let db = state.db.clone();
+fn logout(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    let logger = req
+        .extensions()
+        .get::<Logger>()
+        .expect("no logger installed in request")
+        .clone();
 
-    let resp = Response::new()
-        .with_status(StatusCode::Found)
-        .with_body("Signed out\n")
-        .with_header(Location::new("."))
-        .with_header(SetCookie(vec![
-            "token=; HttpOnly; Secure; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=lax".into()
-        ]));
+    let db = req.state().database.clone();
 
-    info!(
-        ctx, "Got logout request"
-    );
+    let resp = HttpResponse::Found()
+        .header(LOCATION, ".")
+        .header(
+            SET_COOKIE,
+            "token=; HttpOnly; Secure; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=lax",
+        )
+        .body("Signed out\n");
 
-    let token_opt = req.header_cookie.and_then(|header_cookie|{
-        Cookie::parse_header(&header_cookie.into()).ok()
-    })
-    .and_then(|cookie| {
-        cookie.get("token").map(String::from)
-    });
+    info!(logger, "Got logout request");
 
-    if let Some(token) = token_opt {
+    if let Some(token) = req.cookie("token") {
         Box::new(
-            db.delete_token(token)
-                .map_err(InternalServerError::from)
-                .map(|_| resp)
+            db.delete_token(token.value().to_string())
+                .map_err(error::ErrorInternalServerError)
+                .map(|_| resp),
         )
     } else {
         Box::new(Ok(resp).into_future())
     }
-}
-
-
-#[derive(GleamFromRequest)]
-struct CookieRequest {
-    header_cookie: Option<String>,
 }

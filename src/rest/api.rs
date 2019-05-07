@@ -1,67 +1,87 @@
-use gleam::{Ctx, Server};
+use actix_web::{error::ErrorInternalServerError, App, Error, HttpRequest, Json};
 use chrono;
-use hyper::Method;
 use futures::Future;
+use hyper::Method;
+use serde::Serialize;
 
-use db;
-use rest::{AppState, AuthenticatedUser, InternalServerError, Json, ShaftUserBody};
-use rest::body_parser::JsonBody;
+use crate::db;
+use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 
+use slog::Logger;
 
-pub fn register_servlets(server: &mut Server) {
-    server.add_route(Method::Get, "/api/balances", get_api_balances);
-    server.add_route(Method::Get, "/api/transactions", get_api_transactions);
-
-    server.add_route_with_body(Method::Post, "/api/shaft", shaft_user);
+pub fn register_servlets(app: App<AppState>) -> App<AppState> {
+    app.resource("/api/balances", |r| {
+        r.method(Method::GET).with(get_api_balances)
+    })
+    .resource("/api/transactions", |r| {
+        r.method(Method::GET).with(get_api_transactions)
+    })
+    .resource("/api/shaft", |r| r.method(Method::POST).with(shaft_user))
 }
 
-
-fn get_api_balances(_: Ctx, state: AppState, _: AuthenticatedUser)
-    -> Box<Future<Item = Json, Error = InternalServerError>>
-{
-    let f = state.db.get_all_users()
-        .map_err(InternalServerError::from)
-        .and_then(Json::new);
+fn get_api_balances(
+    (req, _user): (HttpRequest<AppState>, AuthenticatedUser),
+) -> Box<Future<Item = Json<impl Serialize>, Error = Error>> {
+    let f = req
+        .state()
+        .database
+        .get_all_users()
+        .map_err(ErrorInternalServerError)
+        .map(Json);
 
     Box::new(f)
 }
 
-fn get_api_transactions(_: Ctx, state: AppState, _: AuthenticatedUser)
-    -> Box<Future<Item = Json, Error = InternalServerError>>
-{
-    let f = state.db.get_last_transactions(20)
-        .map_err(InternalServerError::from)
-        .and_then(Json::new);
+fn get_api_transactions(
+    (req, _user): (HttpRequest<AppState>, AuthenticatedUser),
+) -> Box<Future<Item = Json<impl Serialize>, Error = Error>> {
+    let f = req
+        .state()
+        .database
+        .get_last_transactions(20)
+        .map_err(ErrorInternalServerError)
+        .map(Json);
 
     Box::new(f)
 }
-
 
 fn shaft_user(
-    ctx: Ctx,
-    state: AppState,
-    req: AuthenticatedUser,
-    body: JsonBody<ShaftUserBody>
-)
-    -> Box<Future<Item = Json, Error = InternalServerError>>
-{
-    let ShaftUserBody { other_user, amount, reason } = body.0;
+    (req, user, body): (
+        HttpRequest<AppState>,
+        AuthenticatedUser,
+        Json<ShaftUserBody>,
+    ),
+) -> Box<Future<Item = Json<impl Serialize>, Error = Error>> {
+    let logger = req
+        .extensions()
+        .get::<Logger>()
+        .expect("no logger installed in request")
+        .clone();
 
-    let f = state.db.shaft_user(db::Transaction {
-            shafter: req.user_id.clone(),
+    let ShaftUserBody {
+        other_user,
+        amount,
+        reason,
+    } = body.0;
+
+    let f = req
+        .state()
+        .database
+        .shaft_user(db::Transaction {
+            shafter: user.user_id.clone(),
             shaftee: other_user.clone(),
-            amount: amount,
+            amount,
             datetime: chrono::Utc::now(),
-            reason: reason,
+            reason,
         })
-        .from_err()
-        .and_then(move |_| {
+        .map_err(ErrorInternalServerError)
+        .map(move |_| {
             info!(
-                ctx, "Shafted user";
+                logger, "Shafted user";
                 "other_user" => other_user, "amount" => amount
             );
 
-            Json::new(json!({}))
+            Json(json!({}))
         });
 
     Box::new(f)

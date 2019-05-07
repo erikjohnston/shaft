@@ -1,79 +1,83 @@
-use gleam::{Ctx, FromRequest, Params, Server};
-use hyper;
-use hyper::StatusCode;
-use hyper::header::Cookie;
+use actix_web::{self, error, middleware, Error, FromRequest, HttpRequest, HttpResponse};
+use cookie::Cookie;
 use futures::{Future, IntoFuture};
 
-use std::rc::Rc;
+use crate::db;
+use crate::rest::AppState;
 
-use db;
-use rest::InternalServerError;
+use slog::Logger;
 
+pub struct AuthenticateUser;
 
+#[derive(Clone)]
 pub struct AuthenticatedUser {
     pub user_id: String,
     pub display_name: String,
 }
 
-impl FromRequest for AuthenticatedUser {
-    type Error = hyper::Response;
-    type Future = Box<Future<Item=Self, Error=Self::Error>>;
+impl middleware::Middleware<AppState> for AuthenticateUser {
+    fn start(&self, req: &HttpRequest<AppState>) -> actix_web::Result<middleware::Started> {
+        let logger = req
+            .extensions()
+            .get::<Logger>()
+            .expect("no logger installed in request")
+            .clone();
 
-    fn from_request(server: &Server, ctx: &Ctx, req: &hyper::Request, _: &Params)
-        -> Self::Future
-    {
-        let db: &Rc<db::Database> = server.get_state().expect("missing db");
-        let db = db.clone();
+        let req = req.clone();
+        let db = req.state().database.clone();
 
-        let mut ctx = ctx.clone();
+        let cookie_result = {
+            req.cookie("token")
+                .map(|cookie| cookie.value().to_string())
+                .ok_or_else(|| HttpResponse::Unauthorized().body("Please login again"))
+        };
 
-        let f = req.headers().get()
-            .and_then(|cookie: &Cookie| {
-                cookie.get("token").map(String::from)
-            })
-            .ok_or_else(|| {
-                hyper::Response::new()
-                    .with_status(StatusCode::Unauthorized)
-                    .with_body("Please login again")
-            })
+        let f = cookie_result
             .into_future()
             .and_then(move |token| {
-                db.get_user_from_token(token)
-                    .map_err(|err| {
-                        hyper::Response::new()
-                            .with_status(StatusCode::InternalServerError)
-                            .with_body(format!("Error: {}", err))
-                    })
+                db.get_user_from_token(token).map_err(|err| {
+                    HttpResponse::InternalServerError().body(format!("Error: {}", err))
+                })
             })
             .and_then(move |user_id_opt| {
-                user_id_opt.ok_or_else(|| {
-                        hyper::Response::new()
-                            .with_status(StatusCode::Unauthorized)
-                            .with_body("Please login again")
-                    })
+                user_id_opt.ok_or_else(|| HttpResponse::Unauthorized().body("Please login again"))
             })
-            .map(move |user| {
-                ctx.update_logger(o!("user_id" => user.user_id.clone()));
-                info!(ctx, "Authenticated user");
-                AuthenticatedUser {
+            .and_then(move |user| {
+                let logger = logger.new(o!("user_id" => user.user_id.clone()));
+                info!(logger, "Authenticated user");
+                req.extensions_mut().insert(logger);
+
+                req.extensions_mut().insert(AuthenticatedUser {
                     user_id: user.user_id,
                     display_name: user.display_name,
-                }
-            });
+                });
 
-        Box::new(f)
+                Ok(None)
+            })
+            .or_else(|err| Ok(Some(err)));
+
+        Ok(middleware::Started::Future(Box::new(f)))
     }
 }
 
+impl FromRequest<AppState> for AuthenticatedUser {
+    type Config = ();
+    type Result = Result<AuthenticatedUser, Error>;
 
-pub fn get_user_from_cookie(db: Rc<db::Database>, cookie: &Cookie)
-    -> Box<Future<Item=Option<db::User>, Error=InternalServerError>>
-{
-    if let Some(token) = cookie.get("token").map(String::from) {
-        let f = db.get_user_from_token(token)
-            .map_err(InternalServerError::from);
-        Box::new(f)
-    } else {
-        Box::new(Ok(None).into_future())
+    fn from_request(req: &HttpRequest<AppState>, _: &Self::Config) -> Self::Result {
+        req.extensions()
+            .get::<AuthenticatedUser>()
+            .map(Clone::clone)
+            .ok_or_else(|| error::ErrorUnauthorized("Please login again"))
     }
+}
+
+pub fn get_user_from_cookie(
+    db: &db::Database,
+    cookie: &Cookie,
+) -> Box<Future<Item = Option<db::User>, Error = Error>> {
+    let f = db
+        .get_user_from_token(cookie.value().to_string())
+        .map_err(error::ErrorInternalServerError);
+    Box::new(f)
 }
