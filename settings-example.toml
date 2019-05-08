@@ -1,0 +1,18 @@
+database_file = "shaft.db"
+resource_dir = "res"
+web_root = "/"
+bind = "127.0.0.1:8975"
+
+[log]
+type = "terminal"
+level = "info"
+
+[github]
+client_id = "..."
+client_secret = "..."
+state = "..."   # A randomly generated secret. Can change over restarts.
+required_org = "..."
+
+# Uncomment to enable daemonization
+#[DaemonizeSettings]
+#pidfile = "..."

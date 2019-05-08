@@ -1,8 +1,12 @@
-use crate::rest::AppState;
+use std::path::Path;
+
 use actix_web::{fs, App};
 
-pub fn register_servlets(app: App<AppState>) -> App<AppState> {
-    let dir = app.state().config.resource_dir.clone();
+use crate::rest::AppState;
 
-    app.handler("/static", fs::StaticFiles::new(dir).unwrap())
+pub fn register_servlets(app: App<AppState>) -> App<AppState> {
+    let res_dir = Path::new(&app.state().config.resource_dir);
+    let static_dir = res_dir.join("static");
+
+    app.handler("/static", fs::StaticFiles::new(static_dir).unwrap())
 }
