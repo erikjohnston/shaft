@@ -12,5 +12,6 @@ RUN apt-get install -y libssl-dev libsqlite3-0
 
 WORKDIR /root/
 COPY --from=0 /src/target/debug/shaft .
+COPY --from=0 /src/res/ res/
 
-CMD ["./shaft"]
+ENTRYPOINT ["./shaft"]
