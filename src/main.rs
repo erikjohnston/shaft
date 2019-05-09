@@ -45,7 +45,7 @@ macro_rules! load_template {
     };
 }
 
-// App Entry point.
+/// App Entry point.
 fn main() {
     // Load settings, first by looking at command line options for config files
     // to look in.
