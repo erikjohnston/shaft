@@ -36,3 +36,16 @@ actix = "0.7.0"
 [dependencies.linear-map]
 features = ["serde_impl"]
 version = "1.2.0"
+
+[dependencies.openssl]
+version = "0.10"
+#features = ["vendored"]
+
+[features]
+bundled = ["openssl/vendored", "rusqlite/bundled"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+panic = "abort"
