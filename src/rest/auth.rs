@@ -1,15 +1,22 @@
+//! Handles authenticating an incoming request.
+
 use actix_web::{self, error, middleware, Error, FromRequest, HttpRequest, HttpResponse};
-use cookie::Cookie;
 use futures::Future;
 use hyper::header::LOCATION;
 
-use crate::db;
 use crate::rest::AppState;
 
 use slog::Logger;
 
+/// Middleware for annotating requests with valid user authentication.
+///
+/// **Note**: Does not deny unauthenticated requests.
 pub struct AuthenticateUser;
 
+/// An authenticated user session.
+///
+/// Implements FromRequest so can be used as an extractor to require a valid
+/// session for the endpoint.
 #[derive(Clone)]
 pub struct AuthenticatedUser {
     pub user_id: String,
@@ -72,14 +79,4 @@ impl FromRequest<AppState> for AuthenticatedUser {
                 error::InternalError::from_response("Please login", resp).into()
             })
     }
-}
-
-pub fn get_user_from_cookie(
-    db: &db::Database,
-    cookie: &Cookie,
-) -> Box<Future<Item = Option<db::User>, Error = Error>> {
-    let f = db
-        .get_user_from_token(cookie.value().to_string())
-        .map_err(error::ErrorInternalServerError);
-    Box::new(f)
 }

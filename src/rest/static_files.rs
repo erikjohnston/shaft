@@ -1,3 +1,5 @@
+//! Renders static files in resource directory
+
 use std::path::Path;
 
 use actix_web::{fs, App};

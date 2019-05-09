@@ -1,3 +1,5 @@
+//! Handles talking to local data store.
+
 use chrono;
 use chrono::TimeZone;
 use futures::Future;
@@ -13,69 +15,97 @@ use serde;
 use std::path::Path;
 use std::sync::Arc;
 
+/// A single transaction between two users.
 #[derive(Clone, Debug, Serialize)]
 pub struct Transaction {
+    /// The user who is creating the transaction.
     pub shafter: String,
+    /// The other party in the transaction.
     pub shaftee: String,
+    /// The amount of money in pence. Positive means shafter is owed the amount,
+    /// negative means shafter owes the amount.
     pub amount: i64,
+    /// Time transaction happened.
     #[serde(serialize_with = "serialize_time")]
     pub datetime: chrono::DateTime<chrono::Utc>,
+    /// A human readable description of the transaction.
     pub reason: String,
 }
 
+/// A user and their balance
 #[derive(Debug, Clone, Serialize)]
 pub struct User {
+    /// Their internal shaft user ID
     pub user_id: String,
+    /// Their display name
     pub display_name: String,
+    /// Their current balance
     pub balance: i64,
 }
 
+/// A generic datastore for the app
 pub trait Database: Send + Sync {
+    /// Get local user ID by their Github login ID
     fn get_user_by_github_id(
         &self,
         github_user_id: String,
     ) -> Box<Future<Item = Option<String>, Error = DatabaseError>>;
 
+    /// Add a new user from github
     fn add_user_by_github_id(
         &self,
         github_user_id: String,
         display_name: String,
     ) -> Box<Future<Item = String, Error = DatabaseError>>;
 
+    /// Create a new Shaft access token
     fn create_token_for_user(
         &self,
         user_id: String,
     ) -> Box<Future<Item = String, Error = DatabaseError>>;
 
+    /// Delete a Shaft access token.
     fn delete_token(&self, token: String) -> Box<Future<Item = (), Error = DatabaseError>>;
 
+    /// Get a user by Shaft access token.
     fn get_user_from_token(
         &self,
         token: String,
     ) -> Box<Future<Item = Option<User>, Error = DatabaseError>>;
 
+    /// Get a user's balance in pence
     fn get_balance_for_user(&self, user: String) -> Box<Future<Item = i64, Error = DatabaseError>>;
 
+    /// Get a map of all users from local user ID to [User] object
     fn get_all_users(&self) -> Box<Future<Item = LinearMap<String, User>, Error = DatabaseError>>;
 
+    /// Commit a new Shaft [Transaction]
     fn shaft_user(
         &self,
         transaction: Transaction,
     ) -> Box<Future<Item = (), Error = ShaftUserError>>;
 
+    /// Get a list of the most recent Shaft transactions
     fn get_last_transactions(
         &self,
         limit: u32,
     ) -> Box<Future<Item = Vec<Transaction>, Error = DatabaseError>>;
 }
 
+/// An implementation of [Database] using sqlite.Database
+///
+/// Safe to clone as the thread and connection pools will be shared.
 #[derive(Clone)]
 pub struct SqliteDatabase {
+    /// Thread pool used to do database operations.
     cpu_pool: CpuPool,
+    /// SQLite connection pool.
     db_pool: Arc<r2d2::Pool<SqliteConnectionManager>>,
 }
 
 impl SqliteDatabase {
+    /// Create new instance with given path. If file does not exist a new
+    /// database is created.
     pub fn with_path<P: AsRef<Path>>(path: P) -> SqliteDatabase {
         let manager = SqliteConnectionManager::file(path);
         let pool = r2d2::Pool::new(manager).unwrap();
@@ -383,12 +413,15 @@ impl Database for SqliteDatabase {
 }
 
 quick_error! {
+    /// Error using database.
     #[derive(Debug)]
     pub enum DatabaseError {
+        /// Error getting a database connection.
         ConnectionPool(err: r2d2::Error) {
             from()
             display("DB Pool error: {}", err)
         }
+        /// SQLite error.
         SqliteError(err: rusqlite::Error) {
             from()
             display("Sqlite Pool error: {}", err)
@@ -397,14 +430,17 @@ quick_error! {
 }
 
 quick_error! {
+    /// Error committing new shaft transaction.
     #[derive(Debug)]
     pub enum ShaftUserError {
+        /// Failed to talk to database.
         Database(err: DatabaseError) {
             from()
             from(e: r2d2::Error) -> (DatabaseError::from(e))
             from(e: rusqlite::Error) -> (DatabaseError::from(e))
             display("{}", err)
         }
+        /// One of the users is unknown.
         UnknownUser(user_id: String) {
             from()
             display("Unknown user: {}", user_id)
@@ -412,6 +448,7 @@ quick_error! {
     }
 }
 
+/// Serialize time into timestamp.
 fn serialize_time<S>(date: &chrono::DateTime<chrono::Utc>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,

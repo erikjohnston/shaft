@@ -1,3 +1,5 @@
+//! A logging middleware using [slog]
+
 use actix_web::middleware::{Finished, Middleware, Started};
 use actix_web::{error::Result, HttpRequest, HttpResponse};
 use rand::{thread_rng, Rng};
@@ -5,8 +7,10 @@ use slog::Logger;
 
 use crate::rest::AppState;
 
+/// A unique ID assigned to each inbound request
 pub struct RequestID(pub u32);
 
+/// A middleware that logs proccessed requests usig [slog].
 pub struct MiddlewareLogger {
     logger: Logger,
 }

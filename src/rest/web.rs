@@ -1,3 +1,5 @@
+//! The web form API for interacting with shaft.
+
 use actix_web::{error, App, Error, Form, HttpRequest, HttpResponse};
 use chrono;
 use futures::{Future, IntoFuture};
@@ -6,11 +8,11 @@ use hyper::Method;
 use itertools::Itertools;
 
 use crate::db;
-use crate::rest::auth::get_user_from_cookie;
 use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 
 use slog::Logger;
 
+/// Register servlets with HTTP app
 pub fn register_servlets(app: App<AppState>) -> App<AppState> {
     app.resource(r"/", |r| r.method(Method::GET).f(root))
         .resource(r"/home", |r| r.method(Method::GET).with(get_balances))
@@ -22,9 +24,14 @@ pub fn register_servlets(app: App<AppState>) -> App<AppState> {
         .resource(r"/shaft", |r| r.method(Method::POST).with(shaft_user))
 }
 
+/// The top level root. Redirects to /home or /login.
 fn root(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = Error>> {
     if let Some(token) = req.cookie("token") {
-        let f = get_user_from_cookie(req.state().database.as_ref(), &token)
+        let f = req
+            .state()
+            .database
+            .get_user_from_token(token.value().to_string())
+            .map_err(error::ErrorInternalServerError)
             .map(move |user_opt| {
                 if user_opt.is_some() {
                     HttpResponse::Found().header(LOCATION, "home").finish()
@@ -42,6 +49,7 @@ fn root(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = 
     }
 }
 
+/// Get home page with current balances of all users.
 fn get_balances(
     (user, req): (AuthenticatedUser, HttpRequest<AppState>),
 ) -> Box<Future<Item = HttpResponse, Error = Error>> {
@@ -76,6 +84,7 @@ fn get_balances(
     Box::new(f)
 }
 
+/// Get list of recent transcations page.
 fn get_transactions(
     (user, req): (AuthenticatedUser, HttpRequest<AppState>),
 ) -> Box<Future<Item = HttpResponse, Error = Error>> {
@@ -122,6 +131,7 @@ fn get_transactions(
     Box::new(f)
 }
 
+/// Commit a new tranaction request
 fn shaft_user(
     (user, req, body): (
         AuthenticatedUser,
@@ -166,6 +176,7 @@ fn shaft_user(
     Box::new(f)
 }
 
+/// Login page.
 fn show_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
     let hb = &req.state().handlebars;
     let s = hb
@@ -180,6 +191,7 @@ fn show_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
     Ok(r)
 }
 
+/// Logout user session.
 fn logout(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = Error>> {
     let logger = req
         .extensions()

@@ -1,3 +1,5 @@
+//! Handles login flow using Github OAuth.
+
 use actix_web::{App, Error, HttpRequest, HttpResponse, Query, State};
 use futures::{future, Future, IntoFuture};
 use hyper;
@@ -7,6 +9,7 @@ use url::Url;
 use crate::github;
 use crate::rest::{get_expires_string, AppState};
 
+/// Register servlets with HTTP app
 pub fn register_servlets(app: App<AppState>) -> App<AppState> {
     app.resource("/github/login", |r| r.method(Method::GET).f(github_login))
         .resource("/github/callback", |r| {
@@ -14,6 +17,7 @@ pub fn register_servlets(app: App<AppState>) -> App<AppState> {
         })
 }
 
+/// Handles inbound `/github/login` request to start OAuth flow.
 fn github_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
     let state = req.state();
 
@@ -31,12 +35,17 @@ fn github_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
         .body(format!("Redirecting to {}\n", &redirect_url)))
 }
 
+/// The Github API request recived at `/github/callback`
 #[derive(Deserialize)]
 struct GithubCallbackRequest {
+    /// Code that can be exchanged for a user token.
     code: String,
+    /// A string that we expect to match the configured state string.
     state: String,
 }
 
+/// Handles inbound `/github/callback` request from github that includes code we
+/// can exchange for a user's access token.
 fn github_callback(
     (query, state): (Query<GithubCallbackRequest>, State<AppState>),
 ) -> Box<Future<Item = HttpResponse, Error = Error>> {

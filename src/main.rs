@@ -13,75 +13,42 @@ extern crate clap;
 
 use clap::Arg;
 use daemonize::Daemonize;
+use futures_cpupool::CpuPool;
+use hyper_tls::HttpsConnector;
 use sloggers::Config;
 
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
+use std::net::SocketAddr;
 use std::process::exit;
 use std::sync::Arc;
 
 mod db;
 mod github;
 mod rest;
+mod settings;
 
-type HttpClient = hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>;
+use rest::{register_servlets, AppConfig, AppState, MiddlewareLogger};
+use settings::Settings;
 
+/// Short hand for our HTTPS enabled outbound HTTP client.
+type HttpClient = hyper::Client<HttpsConnector<hyper::client::HttpConnector>>;
+
+/// Attempts to load and build the handlebars template file.
 macro_rules! load_template {
     ($logger:expr, $hb:expr, $root:expr, $name:expr) => {
         if let Err(e) = load_template_impl(&mut $hb, $root, $name) {
             crit!($logger, "Failed to load resources/{}.hbs: {}", $name, e);
-            return;
+            exit(1);
         }
     };
 }
 
-#[derive(Debug, Deserialize)]
-struct GithubSettings {
-    client_id: String,
-    client_secret: String,
-    state: String,
-    required_org: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct DaemonizeSettings {
-    pid_file: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Settings {
-    github: GithubSettings,
-    #[serde(default = "default_database_file")]
-    database_file: String,
-    #[serde(default = "default_resource_dir")]
-    resource_dir: String,
-    #[serde(default = "default_web_root")]
-    web_root: String,
-    #[serde(default = "default_bind")]
-    bind: String,
-    #[serde(default)]
-    log: sloggers::LoggerConfig,
-    daemonize: Option<DaemonizeSettings>,
-}
-
-fn default_database_file() -> String {
-    "shaft.db".to_string()
-}
-
-fn default_resource_dir() -> String {
-    "res".to_string()
-}
-
-fn default_web_root() -> String {
-    "/".to_string()
-}
-
-fn default_bind() -> String {
-    "127.0.0.1:8975".to_string()
-}
-
+// App Entry point.
 fn main() {
+    // Load settings, first by looking at command line options for config files
+    // to look in.
     let matches = app_from_crate!()
         .arg(
             Arg::with_name("config")
@@ -97,67 +64,79 @@ fn main() {
 
     let mut c = config::Config::new();
 
+    // We can have multiple config files which get merged together
     for file in matches.values_of("config").unwrap_or_default() {
         if let Err(err) = c.merge(config::File::with_name(file)) {
+            // We don't have a logger yet, so print to stderr
             eprintln!("{}", err);
             exit(1)
         }
     }
 
+    // Also load config from environment
     c.merge(config::Environment::with_prefix("SHAFT")).unwrap();
 
     let settings: Settings = match c.try_into() {
         Ok(s) => s,
         Err(err) => {
+            // We don't have a logger yet, so print to stderr
             eprintln!("Config error: {}", err);
             exit(1);
         }
     };
 
+    // Set up logging immediately.
     let logger = settings.log.build_logger().unwrap();
 
-    let addr = &settings.bind;
+    let addr: SocketAddr = match settings.bind.parse() {
+        Ok(a) => a,
+        Err(err) => {
+            crit!(
+                logger,
+                "Failed to parse bind addr {}: {}",
+                settings.bind,
+                err
+            );
+            exit(1)
+        }
+    };
 
+    // Load and build the templates.
     let mut hb = handlebars::Handlebars::new();
-
     load_template!(logger, hb, &settings.resource_dir, "index");
     load_template!(logger, hb, &settings.resource_dir, "login");
     load_template!(logger, hb, &settings.resource_dir, "transactions");
     load_template!(logger, hb, &settings.resource_dir, "base");
-
-    if let Some(daemonize_settings) = settings.daemonize {
-        Daemonize::new()
-            .pid_file(daemonize_settings.pid_file)
-            .start()
-            .expect("be able to daemonize");
-    }
-
     hb.register_helper(
         "pence-as-pounds",
         Box::new(rest::format_pence_as_pounds_helper),
     );
 
-    let github_client_id = settings.github.client_id.clone();
-    let github_client_secret = settings.github.client_secret.clone();
-    let github_state = settings.github.state.clone();
+    // Set up the database
+    let database = Arc::new(db::SqliteDatabase::with_path(settings.database_file));
 
+    // Sanitize the webroot to not end in a trailing slash.
     let web_root = settings.web_root.trim_end_matches('/').to_string();
 
-    let database = Arc::new(db::SqliteDatabase::with_path(settings.database_file));
-    let app_config = rest::AppConfig {
-        github_client_id,
-        github_client_secret,
-        github_state,
+    // This is the read only config for the app.
+    let app_config = AppConfig {
+        github_client_id: settings.github.client_id.clone(),
+        github_client_secret: settings.github.client_secret.clone(),
+        github_state: settings.github.state.clone(),
         web_root,
         required_org: settings.github.required_org.clone(),
         resource_dir: settings.resource_dir.clone(),
     };
-    let cpu_pool = futures_cpupool::CpuPool::new(40);
 
-    let https = hyper_tls::HttpsConnector::new(4).expect("TLS initialization failed");
+    // Thread pool to use mainly for DB
+    let cpu_pool = CpuPool::new_num_cpus();
+
+    // Set up HTTPS enabled HTTP client
+    let https = HttpsConnector::new(4).expect("TLS initialization failed");
     let http_client = hyper::Client::builder().build::<_, hyper::Body>(https);
 
-    let app_state = rest::AppState {
+    // Holds the state for the shared state of the app. Gets cloned to each thread.
+    let app_state = AppState {
         database,
         config: app_config,
         cpu_pool,
@@ -165,25 +144,36 @@ fn main() {
         http_client,
     };
 
-    // Start up the server ...
-    let sys = actix::System::new("shaft");
+    // Set up HTTP server
+    let sys = actix::System::new("shaft"); // Need to set up an actix system first.
     let logger_clone = logger.clone();
     actix_web::server::HttpServer::new(move || {
+        // This gets called in each thread to set up the HTTP handlers
+
         let app = actix_web::App::with_state(app_state.clone());
-        let app = app.middleware(rest::MiddlewareLogger::new(logger_clone.clone()));
+        let app = app.middleware(MiddlewareLogger::new(logger_clone.clone()));
 
         // Now actually register the various servlets
-        rest::register_servlets(app)
+        register_servlets(app)
     })
     .bind(addr)
     .unwrap()
     .start();
 
-    info!(logger, "Started server on {}", settings.bind);
+    // If we need to daemonize do so *just* before starting the event loop
+    if let Some(daemonize_settings) = settings.daemonize {
+        Daemonize::new()
+            .pid_file(daemonize_settings.pid_file)
+            .start()
+            .expect("be able to daemonize");
+    }
 
+    // Start the event loop.
+    info!(logger, "Started server on {}", settings.bind);
     let _ = sys.run();
 }
 
+/// Attempts to load the template into handlebars instance.
 fn load_template_impl(
     hb: &mut handlebars::Handlebars,
     root: &str,

@@ -1,3 +1,5 @@
+//! Implements talking to the Github API
+
 use futures::{Future, Stream};
 use hyper;
 use hyper::{Body, Request, StatusCode};
@@ -7,20 +9,27 @@ use url::Url;
 
 use crate::HttpClient;
 
+/// Used to talk to the Github API.
+///
+/// Can safely be cloned.
 #[derive(Debug, Clone)]
 pub struct GithubApi {
     pub http_client: HttpClient,
 }
 
 quick_error! {
+    /// An error occured talking to Github.
     #[derive(Debug)]
     pub enum HttpError {
+        /// Failed to parse response as expected JSON object/
         DeserializeError(err: serde_json::Error) {
             from()
         }
+        /// HTTP request failed/
         Http(err: hyper::Error) {
             from()
         }
+        /// Got non-2xx response.
         Status(code: StatusCode) {
             description("Non 2xx response received")
             display("Got response {}", code)
@@ -30,6 +39,7 @@ quick_error! {
 }
 
 impl GithubApi {
+    /// Exchange received OAuth code with Github.
     pub fn exchange_oauth_code(
         &self,
         client_id: &str,
@@ -51,6 +61,8 @@ impl GithubApi {
         Box::new(f)
     }
 
+    /// Given a user access token from Github get the user's Github ID and
+    /// display name.
     pub fn get_authenticated_user(
         &self,
         token: &str,
@@ -67,6 +79,7 @@ impl GithubApi {
         Box::new(f)
     }
 
+    /// Check if the Github user with given access token is a member of the org.
     pub fn get_if_member_of_org(
         &self,
         token: &str,
@@ -97,6 +110,7 @@ impl GithubApi {
     }
 }
 
+/// Parse HTTP response into JSON object.
 fn parse_resp_as_json<F, C>(resp: F) -> Box<Future<Item = C, Error = HttpError>>
 where
     F: Future<Item = hyper::Response<Body>, Error = hyper::Error> + 'static,
@@ -124,20 +138,29 @@ where
     Box::new(f)
 }
 
+/// Github API response to `/login/oauth/access_token`
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubCallbackAuthResponse {
+    /// An access token for the user we're authed against.
     pub access_token: String,
+    /// The permissions scope the token has.
     pub scope: String,
 }
 
+/// Github API repsonse to `/user`
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubUserResponse {
+    /// The user's Github login ID
     pub login: String,
+    /// The user's Github display name (if any)
     pub name: Option<String>,
 }
 
+/// Github API response to `/user/memberships/orgs/{org}`
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GithubOrganizationMembership {
+    /// The user's membership state in the org
     state: String,
+    /// The user's role in the org
     role: String,
 }

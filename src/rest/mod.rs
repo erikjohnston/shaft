@@ -1,3 +1,5 @@
+//! Handles all REST endpoints
+
 use actix_web::App;
 use chrono;
 use handlebars;
@@ -18,6 +20,7 @@ mod web;
 use self::auth::{AuthenticateUser, AuthenticatedUser};
 pub use self::logger::MiddlewareLogger;
 
+/// Registers all servlets in this module with the HTTP app.
 pub fn register_servlets(app: App<AppState>) -> App<AppState> {
     let app = app.middleware(AuthenticateUser);
 
@@ -27,6 +30,7 @@ pub fn register_servlets(app: App<AppState>) -> App<AppState> {
     web::register_servlets(app)
 }
 
+// Holds the state for the shared state of the app. Gets cloned to each thread.
 #[derive(Clone)]
 pub struct AppState {
     pub database: Arc<db::Database>,
@@ -36,6 +40,7 @@ pub struct AppState {
     pub http_client: HttpClient,
 }
 
+/// Read only config for the app
 #[derive(Clone)]
 pub struct AppConfig {
     pub github_client_id: String,
@@ -46,6 +51,7 @@ pub struct AppConfig {
     pub resource_dir: String,
 }
 
+/// Formats the current time plus two weeks into a cookie expires field.
 pub fn get_expires_string() -> String {
     let dt = chrono::Utc::now() + chrono::Duration::weeks(2);
     const ITEMS: &[chrono::format::Item<'static>] =
@@ -53,6 +59,7 @@ pub fn get_expires_string() -> String {
     dt.format_with_items(ITEMS.iter().cloned()).to_string()
 }
 
+/// Format pence into a pretty pounds string
 fn format_pence_as_pounds(pence: i64) -> String {
     if pence < 0 {
         format!("-£{:2}.{:02}", -pence / 100, -pence % 100)
@@ -61,6 +68,7 @@ fn format_pence_as_pounds(pence: i64) -> String {
     }
 }
 
+/// Handlebars helper function for formatting pence as points.
 pub fn format_pence_as_pounds_helper(
     h: &handlebars::Helper,
     _: &handlebars::Handlebars,
@@ -82,9 +90,14 @@ pub fn format_pence_as_pounds_helper(
     }
 }
 
+/// The body of a incoming request shaft the given user.
 #[derive(Deserialize)]
 struct ShaftUserBody {
+    /// The other party in the transaction.
     other_user: String,
+    /// The amount in pence owed. Positive means shafter is owed money by other
+    /// user, negative means shafer owes money.
     amount: i64,
+    /// The human readable description of the transasction.
     reason: String,
 }
