@@ -1,0 +1,17 @@
+FROM rust:latest
+
+COPY . /src
+WORKDIR /src
+
+RUN apt-get update && apt-get install -y musl-tools musl-dev
+
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo install --target=x86_64-unknown-linux-musl --features bundled --path . --root /
+
+FROM scratch
+
+WORKDIR /root/
+COPY --from=0 /bin/shaft shaft
+COPY --from=0 /src/res/ res/
+
+ENTRYPOINT ["./shaft"]
