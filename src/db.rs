@@ -11,6 +11,7 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use rusqlite;
 use serde;
+use snafu::{Backtrace, ResultExt};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -80,10 +81,8 @@ pub trait Database: Send + Sync {
     fn get_all_users(&self) -> Box<Future<Item = LinearMap<String, User>, Error = DatabaseError>>;
 
     /// Commit a new Shaft [Transaction]
-    fn shaft_user(
-        &self,
-        transaction: Transaction,
-    ) -> Box<Future<Item = (), Error = ShaftUserError>>;
+    fn shaft_user(&self, transaction: Transaction)
+        -> Box<Future<Item = (), Error = DatabaseError>>;
 
     /// Get a list of the most recent Shaft transactions
     fn get_last_transactions(
@@ -125,7 +124,7 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
             let row = conn
                 .query_row(
@@ -140,7 +139,8 @@ impl Database for SqliteDatabase {
                     } else {
                         Err(err)
                     }
-                })?;
+                })
+                .context(SqliteError)?;
 
             Ok(row)
         });
@@ -156,19 +156,21 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
             conn.execute(
                 "INSERT INTO github_users (user_id, github_id)
                 VALUES ($1, $1)",
                 &[&github_user_id],
-            )?;
+            )
+            .context(SqliteError)?;
 
             conn.execute(
                 "INSERT INTO users (user_id, display_name)
                 VALUES ($1, $2)",
                 &[&github_user_id, &display_name],
-            )?;
+            )
+            .context(SqliteError)?;
 
             Ok(github_user_id)
         });
@@ -183,14 +185,15 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
             let token: String = thread_rng().sample_iter(&Alphanumeric).take(32).collect();
 
             conn.execute(
                 "INSERT INTO tokens (user_id, token) VALUES ($1, $2)",
                 &[&user_id, &token],
-            )?;
+            )
+            .context(SqliteError)?;
 
             Ok(token)
         });
@@ -202,9 +205,10 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
-            conn.execute("DELETE FROM tokens WHERE token = $1", &[&token])?;
+            conn.execute("DELETE FROM tokens WHERE token = $1", &[&token])
+                .context(SqliteError)?;
 
             Ok(())
         });
@@ -219,7 +223,7 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
             let row = conn
                 .query_row(
@@ -256,7 +260,8 @@ impl Database for SqliteDatabase {
                     } else {
                         Err(err)
                     }
-                })?;
+                })
+                .context(SqliteError)?;
 
             Ok(row)
         });
@@ -268,10 +273,11 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
-            let row = conn.query_row(
-                r#"SELECT (
+            let row = conn
+                .query_row(
+                    r#"SELECT (
                     SELECT COALESCE(SUM(amount), 0)
                     FROM transactions
                     WHERE shafter = $1
@@ -280,9 +286,10 @@ impl Database for SqliteDatabase {
                     FROM transactions
                     WHERE shaftee = $1
                 )"#,
-                &[&user],
-                |row| row.get(0),
-            )?;
+                    &[&user],
+                    |row| row.get(0),
+                )
+                .context(SqliteError)?;
 
             Ok(row)
         });
@@ -294,10 +301,11 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
-            let mut stmt = conn.prepare(
-                r#"
+            let mut stmt = conn
+                .prepare(
+                    r#"
                 SELECT user_id, display_name, COALESCE(balance, 0) AS balance
                 FROM users
                 LEFT JOIN (
@@ -313,7 +321,8 @@ impl Database for SqliteDatabase {
                 USING (user_id)
                 ORDER BY balance ASC
                 "#,
-            )?;
+                )
+                .context(SqliteError)?;
 
             let rows: Result<LinearMap<String, User>, _> = stmt
                 .query_map(params![], |row| {
@@ -325,10 +334,11 @@ impl Database for SqliteDatabase {
                             balance: row.get(2)?,
                         },
                     ))
-                })?
+                })
+                .context(SqliteError)?
                 .collect();
 
-            Ok(rows?)
+            Ok(rows.context(SqliteError)?)
         });
 
         Box::new(f)
@@ -337,41 +347,44 @@ impl Database for SqliteDatabase {
     fn shaft_user(
         &self,
         transaction: Transaction,
-    ) -> Box<Future<Item = (), Error = ShaftUserError>> {
+    ) -> Box<Future<Item = (), Error = DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
-        let f = self
-            .cpu_pool
-            .spawn_fn(move || -> Result<_, ShaftUserError> {
-                let conn = db_pool.get()?;
+        let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
-                match conn.query_row(
-                    "SELECT user_id FROM users WHERE user_id = $1",
-                    &[&transaction.shaftee],
-                    |_row| Ok(()),
-                ) {
-                    Ok(_) => (),
-                    Err(rusqlite::Error::QueryReturnedNoRows) => {
-                        return Err(ShaftUserError::UnknownUser(transaction.shaftee))
-                    }
-                    Err(err) => return Err(ShaftUserError::Database(err.into())),
+            match conn.query_row(
+                "SELECT user_id FROM users WHERE user_id = $1",
+                &[&transaction.shaftee],
+                |_row| Ok(()),
+            ) {
+                Ok(_) => (),
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    return Err(DatabaseError::UnknownUser {
+                        user_id: transaction.shaftee,
+                    })
                 }
+                Err(err) => Err(err).context(SqliteError)?,
+            }
 
-                let mut stmt = conn.prepare(
+            let mut stmt = conn
+                .prepare(
                     "INSERT INTO transactions (shafter, shaftee, amount, time_sec, reason)\
                      VALUES ($1, $2, $3, $4, $5)",
-                )?;
+                )
+                .context(SqliteError)?;
 
-                stmt.execute(params![
-                    &transaction.shafter,
-                    &transaction.shaftee,
-                    &transaction.amount,
-                    &transaction.datetime.timestamp(),
-                    &transaction.reason,
-                ])?;
+            stmt.execute(params![
+                &transaction.shafter,
+                &transaction.shaftee,
+                &transaction.amount,
+                &transaction.datetime.timestamp(),
+                &transaction.reason,
+            ])
+            .context(SqliteError)?;
 
-                Ok(())
-            });
+            Ok(())
+        });
 
         Box::new(f)
     }
@@ -383,15 +396,17 @@ impl Database for SqliteDatabase {
         let db_pool = self.db_pool.clone();
 
         let f = self.cpu_pool.spawn_fn(move || -> Result<_, DatabaseError> {
-            let conn = db_pool.get()?;
+            let conn = db_pool.get().context(ConnectionPoolError)?;
 
-            let mut stmt = conn.prepare(
-                r#"SELECT shafter, shaftee, amount, time_sec, reason
+            let mut stmt = conn
+                .prepare(
+                    r#"SELECT shafter, shaftee, amount, time_sec, reason
                 FROM transactions
                 ORDER BY id DESC
                 LIMIT $1
                 "#,
-            )?;
+                )
+                .context(SqliteError)?;
 
             let rows: Result<Vec<_>, _> = stmt
                 .query_map(&[&limit], |row| {
@@ -402,50 +417,37 @@ impl Database for SqliteDatabase {
                         datetime: chrono::Utc.timestamp(row.get(3)?, 0),
                         reason: row.get(4)?,
                     })
-                })?
+                })
+                .context(SqliteError)?
                 .collect();
 
-            Ok(rows?)
+            Ok(rows.context(SqliteError)?)
         });
 
         Box::new(f)
     }
 }
 
-quick_error! {
-    /// Error using database.
-    #[derive(Debug)]
-    pub enum DatabaseError {
-        /// Error getting a database connection.
-        ConnectionPool(err: r2d2::Error) {
-            from()
-            display("DB Pool error: {}", err)
-        }
-        /// SQLite error.
-        SqliteError(err: rusqlite::Error) {
-            from()
-            display("Sqlite Pool error: {}", err)
-        }
-    }
-}
+/// Error using database.
+#[derive(Debug, Snafu)]
+pub enum DatabaseError {
+    /// Error getting a database connection.
+    #[snafu(display("DB Pool error: {}", source))]
+    ConnectionPoolError {
+        source: r2d2::Error,
+        backtrace: Backtrace,
+    },
 
-quick_error! {
-    /// Error committing new shaft transaction.
-    #[derive(Debug)]
-    pub enum ShaftUserError {
-        /// Failed to talk to database.
-        Database(err: DatabaseError) {
-            from()
-            from(e: r2d2::Error) -> (DatabaseError::from(e))
-            from(e: rusqlite::Error) -> (DatabaseError::from(e))
-            display("{}", err)
-        }
-        /// One of the users is unknown.
-        UnknownUser(user_id: String) {
-            from()
-            display("Unknown user: {}", user_id)
-        }
-    }
+    /// SQLite error.
+    #[snafu(display("Sqlite error: {}", source))]
+    SqliteError {
+        source: rusqlite::Error,
+        backtrace: Backtrace,
+    },
+
+    /// One of the users is unknown.
+    #[snafu(display("Unknown user: {}", user_id))]
+    UnknownUser { user_id: String },
 }
 
 /// Serialize time into timestamp.

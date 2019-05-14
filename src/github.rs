@@ -5,6 +5,7 @@ use hyper;
 use hyper::{Body, Request, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_json;
+use snafu::ResultExt;
 use url::Url;
 
 use crate::HttpClient;
@@ -17,25 +18,18 @@ pub struct GithubApi {
     pub http_client: HttpClient,
 }
 
-quick_error! {
-    /// An error occured talking to Github.
-    #[derive(Debug)]
-    pub enum HttpError {
-        /// Failed to parse response as expected JSON object/
-        DeserializeError(err: serde_json::Error) {
-            from()
-        }
-        /// HTTP request failed/
-        Http(err: hyper::Error) {
-            from()
-        }
-        /// Got non-2xx response.
-        Status(code: StatusCode) {
-            description("Non 2xx response received")
-            display("Got response {}", code)
-            from()
-        }
-    }
+/// An error occured talking to Github.
+#[derive(Debug, Snafu)]
+pub enum HttpError {
+    /// Failed to parse response as expected JSON object/
+    #[snafu(display("Failed to parse JSON response from GitHub: {}", source))]
+    DeserializeError { source: serde_json::Error },
+    /// HTTP request failed/
+    #[snafu(display("Failed to send request to GitHub: {}", source))]
+    Http { source: hyper::Error },
+    /// Got non-2xx response.
+    #[snafu(display("Got non-200 response from GitHub: {}", code))]
+    Status { code: StatusCode },
 }
 
 impl GithubApi {
@@ -95,8 +89,8 @@ impl GithubApi {
         let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()))
             .map(Some)
             .or_else(|err| {
-                if let HttpError::Status(status) = err {
-                    if status == StatusCode::FORBIDDEN {
+                if let HttpError::Status { code } = err {
+                    if code == StatusCode::FORBIDDEN {
                         Ok(None)
                     } else {
                         Err(err)
@@ -117,20 +111,22 @@ where
     C: DeserializeOwned + 'static,
 {
     let f = resp
-        .from_err()
+        .map_err(|e| HttpError::Http { source: e })
         .and_then(|res| -> Result<_, HttpError> {
             if res.status().is_success() {
                 Ok(res)
             } else {
-                Err(res.status().into())
+                Err(HttpError::Status { code: res.status() })
             }
         })
         .and_then(|res| {
             // TODO: Limit max amount read
-            res.into_body().concat2().from_err()
+            res.into_body()
+                .concat2()
+                .map_err(|e| HttpError::Http { source: e })
         })
         .and_then(|vec| -> Result<C, _> {
-            let res = serde_json::from_slice(&vec[..])?;
+            let res = serde_json::from_slice(&vec[..]).context(DeserializeError)?;
 
             Ok(res)
         });

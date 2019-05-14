@@ -1,6 +1,6 @@
 //! Handles login flow using Github OAuth.
 
-use actix_web::{App, Error, HttpRequest, HttpResponse, Query, State};
+use actix_web::{error, App, Error, HttpRequest, HttpResponse, Query, State};
 use futures::{future, Future, IntoFuture};
 use hyper;
 use hyper::Method;
@@ -69,24 +69,24 @@ fn github_callback(
             &state.config.github_client_secret,
             &query.code,
         )
-        .map_err(|e| format!("{}", e))
+        .map_err(error::ErrorServiceUnavailable)
         .and_then(move |callback| {
             gh_api
                 .get_authenticated_user(&callback.access_token)
-                .map_err(|e| format!("{}", e))
+                .map_err(error::ErrorInternalServerError)
                 .and_then(move |user| {
                     let github_user_id = user.login.clone();
                     let github_name = user.name.clone();
 
                     db.get_user_by_github_id(user.login)
-                        .map_err(|e| format!("{}", e))
+                        .map_err(error::ErrorInternalServerError)
                         .and_then(move |user_id_opt| {
                             if let Some(user_id) = user_id_opt {
                                 future::Either::A(Ok(user_id).into_future())
                             } else {
                                 let f = gh_api
                                     .get_if_member_of_org(&callback.access_token, &required_org)
-                                    .map_err(|e| format!("{}", e))
+                                    .map_err(error::ErrorInternalServerError)
                                     .and_then(move |opt| {
                                         if opt.is_some() {
                                             future::Either::A(
@@ -94,10 +94,12 @@ fn github_callback(
                                                     github_user_id.clone(),
                                                     github_name.unwrap_or(github_user_id),
                                                 )
-                                                .map_err(|e| format!("{}", e)),
+                                                .map_err(error::ErrorInternalServerError),
                                             )
                                         } else {
-                                            future::Either::B(future::err("user not in org".into()))
+                                            future::Either::B(future::err(error::ErrorForbidden(
+                                                "user not in org",
+                                            )))
                                         }
                                     });
 
@@ -108,7 +110,7 @@ fn github_callback(
         })
         .and_then(move |user_id| {
             db2.create_token_for_user(user_id)
-                .map_err(|e| format!("{}", e))
+                .map_err(error::ErrorInternalServerError)
         })
         .map(|token| {
             HttpResponse::Found()
@@ -123,7 +125,7 @@ fn github_callback(
                 .header(hyper::header::LOCATION, web_root)
                 .finish()
         })
-        .or_else(|e| Ok(HttpResponse::ServiceUnavailable().body(format!("Error: {}", e))));
+        .map_err(error::ErrorServiceUnavailable);
 
     Box::new(f)
 }

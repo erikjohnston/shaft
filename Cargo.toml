@@ -33,6 +33,7 @@ actix-web = "0.7.0"
 cookie = "0.11.0"
 clap = "2.33.0"
 actix = "0.7.0"
+snafu = "0.3.1"
 
 [dependencies.linear-map]
 features = ["serde_impl"]
