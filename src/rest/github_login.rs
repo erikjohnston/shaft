@@ -1,26 +1,22 @@
 //! Handles login flow using Github OAuth.
 
-use actix_web::{error, App, Error, HttpRequest, HttpResponse, Query, State};
+use actix_web::web::ServiceConfig;
+use actix_web::{error, web, Error, HttpResponse};
 use futures::{future, Future, IntoFuture};
 use hyper;
-use hyper::Method;
 use url::Url;
 
 use crate::github;
 use crate::rest::{get_expires_string, AppState};
 
 /// Register servlets with HTTP app
-pub fn register_servlets(app: App<AppState>) -> App<AppState> {
-    app.resource("/github/login", |r| r.method(Method::GET).f(github_login))
-        .resource("/github/callback", |r| {
-            r.method(Method::GET).with(github_callback)
-        })
+pub fn register_servlets(config: &mut ServiceConfig) {
+    config.route("/github/login", web::get().to_async(github_login));
+    config.route("/github/callback", web::get().to_async(github_callback));
 }
 
 /// Handles inbound `/github/login` request to start OAuth flow.
-fn github_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
-    let state = req.state();
-
+fn github_login(state: web::Data<AppState>) -> Result<HttpResponse, Error> {
     let mut gh = Url::parse("https://github.com/login/oauth/authorize").expect("valid url");
 
     gh.query_pairs_mut()
@@ -47,7 +43,7 @@ struct GithubCallbackRequest {
 /// Handles inbound `/github/callback` request from github that includes code we
 /// can exchange for a user's access token.
 fn github_callback(
-    (query, state): (Query<GithubCallbackRequest>, State<AppState>),
+    (query, state): (web::Query<GithubCallbackRequest>, web::Data<AppState>),
 ) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     if query.state != state.config.github_state {
         let res = HttpResponse::BadRequest().body("State param mismatch");

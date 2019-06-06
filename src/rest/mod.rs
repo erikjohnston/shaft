@@ -1,6 +1,6 @@
 //! Handles all REST endpoints
 
-use actix_web::App;
+use actix_web::web::ServiceConfig;
 use chrono;
 use handlebars;
 use serde_json;
@@ -17,17 +17,15 @@ mod logger;
 mod static_files;
 mod web;
 
-use self::auth::{AuthenticateUser, AuthenticatedUser};
+pub use self::auth::{AuthenticateUser, AuthenticatedUser};
 pub use self::logger::MiddlewareLogger;
 
 /// Registers all servlets in this module with the HTTP app.
-pub fn register_servlets(app: App<AppState>) -> App<AppState> {
-    let app = app.middleware(AuthenticateUser);
-
-    let app = github_login::register_servlets(app);
-    let app = api::register_servlets(app);
-    let app = static_files::register_servlets(app);
-    web::register_servlets(app)
+pub fn register_servlets(config: &mut ServiceConfig, state: &AppState) {
+    github_login::register_servlets(config);
+    api::register_servlets(config);
+    static_files::register_servlets(config, state);
+    web::register_servlets(config)
 }
 
 // Holds the state for the shared state of the app. Gets cloned to each thread.

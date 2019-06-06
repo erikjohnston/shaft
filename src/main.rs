@@ -29,7 +29,7 @@ mod github;
 mod rest;
 mod settings;
 
-use rest::{register_servlets, AppConfig, AppState, MiddlewareLogger};
+use rest::{register_servlets, AppConfig, AppState, AuthenticateUser, MiddlewareLogger};
 use settings::Settings;
 
 /// Short hand for our HTTPS enabled outbound HTTP client.
@@ -145,16 +145,19 @@ fn main() {
     };
 
     // Set up HTTP server
-    let sys = actix::System::new("shaft"); // Need to set up an actix system first.
+    let sys = actix_rt::System::new("shaft"); // Need to set up an actix system first.
+
     let logger_clone = logger.clone();
-    actix_web::server::HttpServer::new(move || {
+
+    actix_web::HttpServer::new(move || {
         // This gets called in each thread to set up the HTTP handlers
 
-        let app = actix_web::App::with_state(app_state.clone());
-        let app = app.middleware(MiddlewareLogger::new(logger_clone.clone()));
-
-        // Now actually register the various servlets
-        register_servlets(app)
+        let logger_middleware = MiddlewareLogger::new(logger_clone.clone());
+        actix_web::App::new()
+            .data(app_state.clone())
+            .wrap_fn(move |req, srv| logger_middleware.wrap(req, srv))
+            .wrap(AuthenticateUser::new(app_state.database.clone()))
+            .configure(|config| register_servlets(config, &app_state))
     })
     .bind(addr)
     .unwrap()

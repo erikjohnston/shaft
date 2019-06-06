@@ -1,10 +1,11 @@
 //! The web form API for interacting with shaft.
 
-use actix_web::{error, App, Error, Form, HttpRequest, HttpResponse};
+use actix_http::httpmessage::HttpMessage;
+use actix_web::web::ServiceConfig;
+use actix_web::{error, web, Error, HttpRequest, HttpResponse};
 use chrono;
 use futures::{Future, IntoFuture};
 use hyper::header::{LOCATION, SET_COOKIE};
-use hyper::Method;
 use itertools::Itertools;
 
 use crate::db;
@@ -13,22 +14,22 @@ use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 use slog::Logger;
 
 /// Register servlets with HTTP app
-pub fn register_servlets(app: App<AppState>) -> App<AppState> {
-    app.resource(r"/", |r| r.method(Method::GET).f(root))
-        .resource(r"/home", |r| r.method(Method::GET).with(get_balances))
-        .resource(r"/login", |r| r.method(Method::GET).f(show_login))
-        .resource(r"/logout", |r| r.method(Method::POST).f(logout))
-        .resource(r"/transactions", |r| {
-            r.method(Method::GET).with(get_transactions)
-        })
-        .resource(r"/shaft", |r| r.method(Method::POST).with(shaft_user))
+pub fn register_servlets(config: &mut ServiceConfig) {
+    config
+        .route("/", web::get().to_async(root))
+        .route("/home", web::get().to_async(get_balances))
+        .route("/login", web::get().to_async(show_login))
+        .route("/logout", web::post().to_async(logout))
+        .route("/transactions", web::get().to_async(get_transactions))
+        .route("/shaft", web::post().to_async(shaft_user));
 }
 
 /// The top level root. Redirects to /home or /login.
-fn root(req: &HttpRequest<AppState>) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+fn root(
+    (req, state): (HttpRequest, web::Data<AppState>),
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     if let Some(token) = req.cookie("token") {
-        let f = req
-            .state()
+        let f = state
             .database
             .get_user_from_token(token.value().to_string())
             .map_err(error::ErrorInternalServerError)
@@ -51,11 +52,10 @@ fn root(req: &HttpRequest<AppState>) -> Box<dyn Future<Item = HttpResponse, Erro
 
 /// Get home page with current balances of all users.
 fn get_balances(
-    (user, req): (AuthenticatedUser, HttpRequest<AppState>),
+    (user, state): (AuthenticatedUser, web::Data<AppState>),
 ) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
-    let hb = req.state().handlebars.clone();
-    let f = req
-        .state()
+    let hb = state.handlebars.clone();
+    let f = state
         .database
         .get_all_users()
         .map_err(error::ErrorInternalServerError)
@@ -86,14 +86,13 @@ fn get_balances(
 
 /// Get list of recent transcations page.
 fn get_transactions(
-    (user, req): (AuthenticatedUser, HttpRequest<AppState>),
+    (user, state): (AuthenticatedUser, web::Data<AppState>),
 ) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
-    let hb = req.state().handlebars.clone();
-    let f = req
-        .state()
+    let hb = state.handlebars.clone();
+    let f = state
         .database
         .get_all_users()
-        .join(req.state().database.get_last_transactions(20))
+        .join(state.database.get_last_transactions(20))
         .map_err(error::ErrorInternalServerError)
         .and_then(move |(all_users, transactions)| {
             hb.render(
@@ -133,10 +132,11 @@ fn get_transactions(
 
 /// Commit a new tranaction request
 fn shaft_user(
-    (user, req, body): (
+    (user, req, state, body): (
         AuthenticatedUser,
-        HttpRequest<AppState>,
-        Form<ShaftUserBody>,
+        HttpRequest,
+        web::Data<AppState>,
+        web::Form<ShaftUserBody>,
     ),
 ) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let logger = req
@@ -151,8 +151,7 @@ fn shaft_user(
         reason,
     } = body.0;
 
-    let f = req
-        .state()
+    let f = state
         .database
         .shaft_user(db::Transaction {
             shafter: user.user_id.clone(),
@@ -177,8 +176,8 @@ fn shaft_user(
 }
 
 /// Login page.
-fn show_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
-    let hb = &req.state().handlebars;
+fn show_login(state: web::Data<AppState>) -> Result<HttpResponse, Error> {
+    let hb = &state.handlebars;
     let s = hb
         .render("login", &json!({}))
         .map_err(|s| error::ErrorInternalServerError(s.to_string()))?;
@@ -192,14 +191,16 @@ fn show_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
 }
 
 /// Logout user session.
-fn logout(req: &HttpRequest<AppState>) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+fn logout(
+    (req, state): (HttpRequest, web::Data<AppState>),
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let logger = req
         .extensions()
         .get::<Logger>()
         .expect("no logger installed in request")
         .clone();
 
-    let db = req.state().database.clone();
+    let db = state.database.clone();
 
     let resp = HttpResponse::Found()
         .header(LOCATION, ".")

@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
-use actix_web::{fs, App};
+use actix_web::web::ServiceConfig;
 
 use crate::rest::AppState;
 
-pub fn register_servlets(app: App<AppState>) -> App<AppState> {
-    let res_dir = Path::new(&app.state().config.resource_dir);
+pub fn register_servlets(config: &mut ServiceConfig, state: &AppState) {
+    let res_dir = Path::new(&state.config.resource_dir);
     let static_dir = res_dir.join("static");
 
-    app.handler("/static", fs::StaticFiles::new(static_dir).unwrap())
+    config.service(actix_files::Files::new("/static", static_dir));
 }

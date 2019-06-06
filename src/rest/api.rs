@@ -1,9 +1,9 @@
 //! The JSON API for interacting with shaft
 
-use actix_web::{error::ErrorInternalServerError, App, Error, HttpRequest, Json};
+use actix_web::web::{Json, ServiceConfig};
+use actix_web::{error::ErrorInternalServerError, web, Error, HttpRequest};
 use chrono;
 use futures::Future;
-use hyper::Method;
 use serde::Serialize;
 
 use crate::db;
@@ -12,23 +12,21 @@ use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 use slog::Logger;
 
 /// Register servlets with HTTP app
-pub fn register_servlets(app: App<AppState>) -> App<AppState> {
-    app.resource("/api/balances", |r| {
-        r.method(Method::GET).with(get_api_balances)
-    })
-    .resource("/api/transactions", |r| {
-        r.method(Method::GET).with(get_api_transactions)
-    })
-    .resource("/api/shaft", |r| r.method(Method::POST).with(shaft_user))
+pub fn register_servlets(config: &mut ServiceConfig) {
+    config.route("/api/balances", web::get().to_async(get_api_balances));
+    config.route(
+        "/api/transactions",
+        web::get().to_async(get_api_transactions),
+    );
+    config.route("/api/shaft", web::post().to_async(shaft_user));
 }
 
 /// Get all user's balances as a map from user ID to [User](crate::db::User)
 /// object.
 fn get_api_balances(
-    (req, _user): (HttpRequest<AppState>, AuthenticatedUser),
+    (state, _user): (web::Data<AppState>, AuthenticatedUser),
 ) -> Box<dyn Future<Item = Json<impl Serialize>, Error = Error>> {
-    let f = req
-        .state()
+    let f = state
         .database
         .get_all_users()
         .map_err(ErrorInternalServerError)
@@ -39,10 +37,9 @@ fn get_api_balances(
 
 /// Get most recent transactions
 fn get_api_transactions(
-    (req, _user): (HttpRequest<AppState>, AuthenticatedUser),
+    (state, _user): (web::Data<AppState>, AuthenticatedUser),
 ) -> Box<dyn Future<Item = Json<Vec<db::Transaction>>, Error = Error>> {
-    let f = req
-        .state()
+    let f = state
         .database
         .get_last_transactions(20)
         .map_err(ErrorInternalServerError)
@@ -55,8 +52,9 @@ fn get_api_transactions(
 ///
 /// Returns an empty json object.
 fn shaft_user(
-    (req, user, body): (
-        HttpRequest<AppState>,
+    (req, state, user, body): (
+        HttpRequest,
+        web::Data<AppState>,
         AuthenticatedUser,
         Json<ShaftUserBody>,
     ),
@@ -73,8 +71,7 @@ fn shaft_user(
         reason,
     } = body.0;
 
-    let f = req
-        .state()
+    let f = state
         .database
         .shaft_user(db::Transaction {
             shafter: user.user_id.clone(),

@@ -1,17 +1,60 @@
 //! Handles authenticating an incoming request.
 
-use actix_web::{self, error, middleware, Error, FromRequest, HttpRequest, HttpResponse};
-use futures::Future;
+use actix_http::error;
+use actix_http::httpmessage::HttpMessage;
+use actix_service::{Service, Transform};
+use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
+use actix_web::{self, Error, FromRequest, HttpRequest, HttpResponse};
+use futures::future::{ok, FutureResult};
+use futures::{Future, Poll};
 use hyper::header::LOCATION;
-
-use crate::rest::AppState;
-
 use slog::Logger;
+
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use crate::db::Database;
+use crate::rest::AppState;
 
 /// Middleware for annotating requests with valid user authentication.
 ///
 /// **Note**: Does not deny unauthenticated requests.
-pub struct AuthenticateUser;
+pub struct AuthenticateUser {
+    database: Arc<dyn Database>,
+}
+
+impl AuthenticateUser {
+    pub fn new(database: Arc<dyn Database>) -> AuthenticateUser {
+        AuthenticateUser { database }
+    }
+}
+
+impl<S, B> Transform<S> for AuthenticateUser
+where
+    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Request = ServiceRequest;
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = AuthenticateUserService<S>;
+    type Future = FutureResult<Self::Transform, Self::InitError>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ok(AuthenticateUserService {
+            database: self.database.clone(),
+            service: Rc::new(RefCell::new(service)),
+        })
+    }
+}
+
+pub struct AuthenticateUserService<S> {
+    database: Arc<dyn Database>,
+    service: Rc<RefCell<S>>,
+}
 
 /// An authenticated user session.
 ///
@@ -23,28 +66,41 @@ pub struct AuthenticatedUser {
     pub display_name: String,
 }
 
-impl middleware::Middleware<AppState> for AuthenticateUser {
-    fn start(&self, req: &HttpRequest<AppState>) -> actix_web::Result<middleware::Started> {
-        let logger = req
-            .extensions()
-            .get::<Logger>()
-            .expect("no logger installed in request")
-            .clone();
+impl<S, B> Service for AuthenticateUserService<S>
+where
+    B: 'static,
+    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+{
+    type Request = ServiceRequest;
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
 
-        let req = req.clone();
-        let db = req.state().database.clone();
+    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
+        self.service.borrow_mut().poll_ready()
+    }
+
+    fn call(&mut self, req: ServiceRequest) -> Self::Future {
+        let db = self.database.clone();
+        let service = self.service.clone();
 
         let token = if let Some(token) = req.cookie("token") {
             token.value().to_string()
         } else {
-            return Ok(middleware::Started::Done);
+            return Box::new(service.borrow_mut().call(req));
         };
 
         let f = db
             .get_user_from_token(token)
-            .map_err(|err| HttpResponse::InternalServerError().body(format!("Error: {}", err)))
+            .map_err(error::ErrorInternalServerError)
             .and_then(move |user_opt| {
                 if let Some(user) = user_opt {
+                    let logger = req
+                        .extensions()
+                        .get::<Logger>()
+                        .expect("no longer installed in request")
+                        .clone();
                     let logger = logger.new(o!("user_id" => user.user_id.clone()));
                     info!(logger, "Authenticated user");
                     req.extensions_mut().insert(logger);
@@ -55,20 +111,21 @@ impl middleware::Middleware<AppState> for AuthenticateUser {
                     });
                 }
 
-                Ok(None)
+                Ok(req)
             })
-            .or_else(|err| Ok(Some(err)));
+            .and_then(move |req| service.borrow_mut().call(req));
 
-        Ok(middleware::Started::Future(Box::new(f)))
+        Box::new(f)
     }
 }
 
-impl FromRequest<AppState> for AuthenticatedUser {
+impl FromRequest for AuthenticatedUser {
     type Config = ();
-    type Result = Result<AuthenticatedUser, Error>;
+    type Error = Error;
+    type Future = Result<AuthenticatedUser, Error>;
 
-    fn from_request(req: &HttpRequest<AppState>, _: &Self::Config) -> Self::Result {
-        let root = &req.state().config.web_root;
+    fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
+        let root = &req.app_data::<AppState>().unwrap().config.web_root;
         let login_url = format!("{}/login", root);
 
         req.extensions()
