@@ -48,7 +48,7 @@ struct GithubCallbackRequest {
 /// can exchange for a user's access token.
 fn github_callback(
     (query, state): (Query<GithubCallbackRequest>, State<AppState>),
-) -> Box<Future<Item = HttpResponse, Error = Error>> {
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     if query.state != state.config.github_state {
         let res = HttpResponse::BadRequest().body("State param mismatch");
         return Box::new(Ok(res).into_future());

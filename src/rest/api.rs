@@ -26,7 +26,7 @@ pub fn register_servlets(app: App<AppState>) -> App<AppState> {
 /// object.
 fn get_api_balances(
     (req, _user): (HttpRequest<AppState>, AuthenticatedUser),
-) -> Box<Future<Item = Json<impl Serialize>, Error = Error>> {
+) -> Box<dyn Future<Item = Json<impl Serialize>, Error = Error>> {
     let f = req
         .state()
         .database
@@ -40,7 +40,7 @@ fn get_api_balances(
 /// Get most recent transactions
 fn get_api_transactions(
     (req, _user): (HttpRequest<AppState>, AuthenticatedUser),
-) -> Box<Future<Item = Json<Vec<db::Transaction>>, Error = Error>> {
+) -> Box<dyn Future<Item = Json<Vec<db::Transaction>>, Error = Error>> {
     let f = req
         .state()
         .database
@@ -60,7 +60,7 @@ fn shaft_user(
         AuthenticatedUser,
         Json<ShaftUserBody>,
     ),
-) -> Box<Future<Item = Json<impl Serialize>, Error = Error>> {
+) -> Box<dyn Future<Item = Json<impl Serialize>, Error = Error>> {
     let logger = req
         .extensions()
         .get::<Logger>()

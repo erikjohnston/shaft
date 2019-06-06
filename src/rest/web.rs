@@ -25,7 +25,7 @@ pub fn register_servlets(app: App<AppState>) -> App<AppState> {
 }
 
 /// The top level root. Redirects to /home or /login.
-fn root(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = Error>> {
+fn root(req: &HttpRequest<AppState>) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     if let Some(token) = req.cookie("token") {
         let f = req
             .state()
@@ -52,7 +52,7 @@ fn root(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = 
 /// Get home page with current balances of all users.
 fn get_balances(
     (user, req): (AuthenticatedUser, HttpRequest<AppState>),
-) -> Box<Future<Item = HttpResponse, Error = Error>> {
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let hb = req.state().handlebars.clone();
     let f = req
         .state()
@@ -87,7 +87,7 @@ fn get_balances(
 /// Get list of recent transcations page.
 fn get_transactions(
     (user, req): (AuthenticatedUser, HttpRequest<AppState>),
-) -> Box<Future<Item = HttpResponse, Error = Error>> {
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let hb = req.state().handlebars.clone();
     let f = req
         .state()
@@ -138,7 +138,7 @@ fn shaft_user(
         HttpRequest<AppState>,
         Form<ShaftUserBody>,
     ),
-) -> Box<Future<Item = HttpResponse, Error = Error>> {
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let logger = req
         .extensions()
         .get::<Logger>()
@@ -192,7 +192,7 @@ fn show_login(req: &HttpRequest<AppState>) -> Result<HttpResponse, Error> {
 }
 
 /// Logout user session.
-fn logout(req: &HttpRequest<AppState>) -> Box<Future<Item = HttpResponse, Error = Error>> {
+fn logout(req: &HttpRequest<AppState>) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let logger = req
         .extensions()
         .get::<Logger>()

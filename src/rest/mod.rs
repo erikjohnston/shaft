@@ -33,7 +33,7 @@ pub fn register_servlets(app: App<AppState>) -> App<AppState> {
 // Holds the state for the shared state of the app. Gets cloned to each thread.
 #[derive(Clone)]
 pub struct AppState {
-    pub database: Arc<db::Database>,
+    pub database: Arc<dyn db::Database>,
     pub config: AppConfig,
     pub cpu_pool: futures_cpupool::CpuPool,
     pub handlebars: Arc<handlebars::Handlebars>,
@@ -74,7 +74,7 @@ pub fn format_pence_as_pounds_helper(
     _: &handlebars::Handlebars,
     _: &handlebars::Context,
     _: &mut handlebars::RenderContext,
-    out: &mut handlebars::Output,
+    out: &mut dyn handlebars::Output,
 ) -> Result<(), handlebars::RenderError> {
     let param = h.param(0).unwrap();
 

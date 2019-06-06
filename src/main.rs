@@ -178,7 +178,7 @@ fn load_template_impl(
     hb: &mut handlebars::Handlebars,
     root: &str,
     name: &str,
-) -> Result<(), Box<Error>> {
+) -> Result<(), Box<dyn Error>> {
     let mut index_file = File::open(format!("{}/{}.hbs", root, name))?;
     let mut source = String::new();
     index_file.read_to_string(&mut source)?;

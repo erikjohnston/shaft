@@ -39,7 +39,7 @@ impl GithubApi {
         client_id: &str,
         client_secret: &str,
         code: &str,
-    ) -> Box<Future<Item = GithubCallbackAuthResponse, Error = HttpError>> {
+    ) -> Box<dyn Future<Item = GithubCallbackAuthResponse, Error = HttpError>> {
         let mut gh = Url::parse("https://github.com/login/oauth/access_token").unwrap();
 
         gh.query_pairs_mut()
@@ -60,7 +60,7 @@ impl GithubApi {
     pub fn get_authenticated_user(
         &self,
         token: &str,
-    ) -> Box<Future<Item = GithubUserResponse, Error = HttpError>> {
+    ) -> Box<dyn Future<Item = GithubUserResponse, Error = HttpError>> {
         let url = "https://api.github.com/user";
 
         let mut req = Request::get(url);
@@ -78,7 +78,7 @@ impl GithubApi {
         &self,
         token: &str,
         org: &str,
-    ) -> Box<Future<Item = Option<GithubOrganizationMembership>, Error = HttpError>> {
+    ) -> Box<dyn Future<Item = Option<GithubOrganizationMembership>, Error = HttpError>> {
         let url = format!("https://api.github.com/user/memberships/orgs/{}", org);
 
         let mut req = Request::get(url);
@@ -105,7 +105,7 @@ impl GithubApi {
 }
 
 /// Parse HTTP response into JSON object.
-fn parse_resp_as_json<F, C>(resp: F) -> Box<Future<Item = C, Error = HttpError>>
+fn parse_resp_as_json<F, C>(resp: F) -> Box<dyn Future<Item = C, Error = HttpError>>
 where
     F: Future<Item = hyper::Response<Body>, Error = hyper::Error> + 'static,
     C: DeserializeOwned + 'static,
