@@ -5,8 +5,10 @@ use actix_web::{error::ErrorInternalServerError, web, Error, HttpRequest};
 use chrono;
 use futures::Future;
 use serde::Serialize;
+use snafu::futures01::FutureExt;
 
 use crate::db;
+use crate::error::{ShaftError, DatabaseError};
 use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 
 use slog::Logger;
@@ -58,7 +60,7 @@ fn shaft_user(
         AuthenticatedUser,
         Json<ShaftUserBody>,
     ),
-) -> Box<dyn Future<Item = Json<impl Serialize>, Error = Error>> {
+) -> Box<dyn Future<Item = Json<impl Serialize>, Error = ShaftError>> {
     let logger = req
         .extensions()
         .get::<Logger>()
@@ -80,7 +82,7 @@ fn shaft_user(
             datetime: chrono::Utc::now(),
             reason,
         })
-        .map_err(ErrorInternalServerError)
+        .context(DatabaseError)
         .map(move |_| {
             info!(
                 logger, "Shafted user";

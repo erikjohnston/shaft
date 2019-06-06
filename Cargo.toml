@@ -32,7 +32,6 @@ url = "1.7.2"
 actix-web = "1.0.0"
 cookie = "0.12.0"
 clap = "2.33.0"
-snafu = "0.4.0"
 actix-rt = "0.2.2"
 actix-files = "0.1.1"
 actix-service = "0.4.1"
@@ -41,6 +40,10 @@ actix-http = "0.2.3"
 [dependencies.linear-map]
 features = ["serde_impl"]
 version = "1.2.0"
+
+[dependencies.snafu]
+features = ["futures-01"]
+version = "0.4.0"
 
 [features]
 bundled = ["openssl/vendored", "rusqlite/bundled"]

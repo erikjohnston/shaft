@@ -25,6 +25,7 @@ use std::process::exit;
 use std::sync::Arc;
 
 mod db;
+mod error;
 mod github;
 mod rest;
 mod settings;
