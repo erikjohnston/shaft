@@ -21,6 +21,8 @@ pub fn register_servlets(config: &mut ServiceConfig) {
         .route("/login", web::get().to_async(show_login))
         .route("/logout", web::post().to_async(logout))
         .route("/transactions", web::get().to_async(get_transactions))
+        // GET /shaft should redirect /home as we cannot extract a reason to preserve from it.
+        .route("/shaft", web::get().to_async(root))
         .route("/shaft", web::post().to_async(shaft_user));
 }
 
@@ -50,9 +52,16 @@ fn root(
     }
 }
 
-/// Get home page with current balances of all users.
 fn get_balances(
     (user, state): (AuthenticatedUser, web::Data<AppState>),
+) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+    get_balances_impl((user, state), None)
+}
+
+/// Get home page with current balances of all users.
+fn get_balances_impl(
+    (user, state): (AuthenticatedUser, web::Data<AppState>),
+    preserved_reason: Option<String>,
 ) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
     let hb = state.handlebars.clone();
     let f = state
@@ -69,6 +78,7 @@ fn get_balances(
                     &json!({
                         "display_name": &user.display_name,
                         "balances": vec,
+                        "reason": &preserved_reason,
                     }),
                 )
                 .map_err(|s| error::ErrorInternalServerError(s.to_string()))?;
@@ -158,18 +168,16 @@ fn shaft_user(
             shaftee: other_user.clone(),
             amount,
             datetime: chrono::Utc::now(),
-            reason,
+            reason: reason.clone(),
         })
         .map_err(error::ErrorInternalServerError)
-        .map(move |_| {
+        .and_then(move |_| {
             info!(
                 logger, "Shafted user";
                 "other_user" => other_user, "amount" => amount
             );
 
-            HttpResponse::Found()
-                .header(LOCATION, ".")
-                .body("Success\n")
+            get_balances_impl((user, state), Some(reason))
         });
 
     Box::new(f)
