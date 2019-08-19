@@ -1,5 +1,5 @@
-use snafu::Backtrace;
 use actix_web::error::ResponseError;
+use snafu::Backtrace;
 
 use crate::{db, github};
 
@@ -18,6 +18,5 @@ pub enum ShaftError {
         backtrace: Backtrace,
     },
 }
-
 
 impl ResponseError for ShaftError {}

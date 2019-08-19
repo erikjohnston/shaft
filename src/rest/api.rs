@@ -8,7 +8,7 @@ use serde::Serialize;
 use snafu::futures01::FutureExt;
 
 use crate::db;
-use crate::error::{ShaftError, DatabaseError};
+use crate::error::{DatabaseError, ShaftError};
 use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
 
 use slog::Logger;

@@ -21,7 +21,8 @@ pub fn register_servlets(config: &mut ServiceConfig) {
         .route("/login", web::get().to_async(show_login))
         .route("/logout", web::post().to_async(logout))
         .route("/transactions", web::get().to_async(get_transactions))
-        .route("/shaft", web::post().to_async(shaft_user));
+        .route("/shaft", web::post().to_async(shaft_user))
+        .route("/health", web::get().to(|| "OK"));
 }
 
 /// The top level root. Redirects to /home or /login.
