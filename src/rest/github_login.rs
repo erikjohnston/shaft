@@ -108,7 +108,7 @@ fn github_callback(
             db2.create_token_for_user(user_id)
                 .map_err(error::ErrorInternalServerError)
         })
-        .map(|token| {
+        .map(move |token| {
             HttpResponse::Found()
                 .header(
                     hyper::header::SET_COOKIE,
@@ -118,7 +118,7 @@ fn github_callback(
                         get_expires_string(),
                     ),
                 )
-                .header(hyper::header::LOCATION, web_root)
+                .header(hyper::header::LOCATION, format!("{}/", web_root))
                 .finish()
         })
         .map_err(error::ErrorServiceUnavailable);
