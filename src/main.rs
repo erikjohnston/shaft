@@ -156,8 +156,8 @@ fn main() {
         let logger_middleware = MiddlewareLogger::new(logger_clone.clone());
         actix_web::App::new()
             .data(app_state.clone())
-            .wrap_fn(move |req, srv| logger_middleware.wrap(req, srv))
             .wrap(AuthenticateUser::new(app_state.database.clone()))
+            .wrap_fn(move |req, srv| logger_middleware.wrap(req, srv))
             .configure(|config| register_servlets(config, &app_state))
     })
     .bind(addr)

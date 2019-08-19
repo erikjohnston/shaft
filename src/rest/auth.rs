@@ -99,7 +99,7 @@ where
                     let logger = req
                         .extensions()
                         .get::<Logger>()
-                        .expect("no longer installed in request")
+                        .expect("logger no longer installed in request")
                         .clone();
                     let logger = logger.new(o!("user_id" => user.user_id.clone()));
                     info!(logger, "Authenticated user");
