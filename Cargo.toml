@@ -36,6 +36,8 @@ actix-rt = "0.2.2"
 actix-files = "0.1.1"
 actix-service = "0.4.1"
 actix-http = "0.2.3"
+postgres = "0.15.2"
+r2d2_postgres = "0.14.0"
 
 [dependencies.linear-map]
 features = ["serde_impl"]
