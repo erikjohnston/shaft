@@ -5,14 +5,17 @@ use actix_http::httpmessage::HttpMessage;
 use actix_service::{Service, Transform};
 use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
 use actix_web::{self, Error, FromRequest, HttpRequest, HttpResponse};
-use futures::future::{ok, FutureResult};
-use futures::{Future, Poll};
+use futures::future::ok;
+use futures::Future;
+use futures::FutureExt;
 use hyper::header::LOCATION;
 use slog::Logger;
 
 use std::cell::RefCell;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use crate::db::Database;
 use crate::rest::AppState;
@@ -41,13 +44,14 @@ where
     type Error = Error;
     type InitError = ();
     type Transform = AuthenticateUserService<S>;
-    type Future = FutureResult<Self::Transform, Self::InitError>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Transform, Self::InitError>>>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
         ok(AuthenticateUserService {
             database: self.database.clone(),
             service: Rc::new(RefCell::new(service)),
         })
+        .boxed_local()
     }
 }
 
@@ -75,10 +79,10 @@ where
     type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
-    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
-        self.service.borrow_mut().poll_ready()
+    fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.borrow_mut().poll_ready(ctx)
     }
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
@@ -88,34 +92,34 @@ where
         let token = if let Some(token) = req.cookie("token") {
             token.value().to_string()
         } else {
-            return Box::new(service.borrow_mut().call(req));
+            return service.borrow_mut().call(req).boxed_local();
         };
 
-        let f = db
-            .get_user_from_token(token)
-            .map_err(error::ErrorInternalServerError)
-            .and_then(move |user_opt| {
-                if let Some(user) = user_opt {
-                    let logger = req
-                        .extensions()
-                        .get::<Logger>()
-                        .expect("logger no longer installed in request")
-                        .clone();
-                    let logger = logger.new(o!("user_id" => user.user_id.clone()));
-                    info!(logger, "Authenticated user");
-                    req.extensions_mut().insert(logger);
+        async {
+            let user_opt = db
+                .get_user_from_token(token)
+                .await
+                .map_err(error::ErrorInternalServerError)?;
 
-                    req.extensions_mut().insert(AuthenticatedUser {
-                        user_id: user.user_id,
-                        display_name: user.display_name,
-                    });
-                }
+            if let Some(user) = user_opt {
+                let logger = req
+                    .extensions()
+                    .get::<Logger>()
+                    .expect("logger no longer installed in request")
+                    .clone();
+                let logger = logger.new(o!("user_id" => user.user_id.clone()));
+                info!(logger, "Authenticated user");
+                req.extensions_mut().insert(logger);
 
-                Ok(req)
-            })
-            .and_then(move |req| service.borrow_mut().call(req));
+                req.extensions_mut().insert(AuthenticatedUser {
+                    user_id: user.user_id,
+                    display_name: user.display_name,
+                });
+            }
 
-        Box::new(f)
+            service.borrow_mut().call(req).await
+        }
+        .boxed_local()
     }
 }
 
@@ -132,7 +136,7 @@ impl FromRequest for AuthenticatedUser {
             .get::<AuthenticatedUser>()
             .map(Clone::clone)
             .ok_or_else(|| {
-                let resp = HttpResponse::Found().header(LOCATION, login_url).finish();
+                let resp = HttpResponse::Found().header(&LOCATION, login_url).finish();
                 error::InternalError::from_response("Please login", resp).into()
             })
     }

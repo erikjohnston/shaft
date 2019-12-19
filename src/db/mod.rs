@@ -8,6 +8,8 @@ use rusqlite;
 use serde;
 use snafu::Backtrace;
 
+use std::pin::Pin;
+
 mod postgres;
 mod sqlite;
 
@@ -48,52 +50,55 @@ pub trait Database: Send + Sync {
     fn get_user_by_github_id(
         &self,
         github_user_id: String,
-    ) -> Box<dyn Future<Item = Option<String>, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, DatabaseError>>>>;
 
     /// Add a new user from github
     fn add_user_by_github_id(
         &self,
         github_user_id: String,
         display_name: String,
-    ) -> Box<dyn Future<Item = String, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<String, DatabaseError>>>>;
 
     /// Create a new Shaft access token
     fn create_token_for_user(
         &self,
         user_id: String,
-    ) -> Box<dyn Future<Item = String, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<String, DatabaseError>>>>;
 
     /// Delete a Shaft access token.
-    fn delete_token(&self, token: String) -> Box<dyn Future<Item = (), Error = DatabaseError>>;
+    fn delete_token(
+        &self,
+        token: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), DatabaseError>>>>;
 
     /// Get a user by Shaft access token.
     fn get_user_from_token(
         &self,
         token: String,
-    ) -> Box<dyn Future<Item = Option<User>, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Option<User>, DatabaseError>>>>;
 
     /// Get a user's balance in pence
     fn get_balance_for_user(
         &self,
         user: String,
-    ) -> Box<dyn Future<Item = i64, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<i64, DatabaseError>>>>;
 
     /// Get a map of all users from local user ID to [User] object
     fn get_all_users(
         &self,
-    ) -> Box<dyn Future<Item = LinearMap<String, User>, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<LinearMap<String, User>, DatabaseError>>>>;
 
     /// Commit a new Shaft [Transaction]
     fn shaft_user(
         &self,
         transaction: Transaction,
-    ) -> Box<dyn Future<Item = (), Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), DatabaseError>>>>;
 
     /// Get a list of the most recent Shaft transactions
     fn get_last_transactions(
         &self,
         limit: u32,
-    ) -> Box<dyn Future<Item = Vec<Transaction>, Error = DatabaseError>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Transaction>, DatabaseError>>>>;
 }
 
 /// Error using database.
