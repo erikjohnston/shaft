@@ -95,7 +95,7 @@ where
             return service.borrow_mut().call(req).boxed_local();
         };
 
-        async {
+        async move {
             let user_opt = db
                 .get_user_from_token(token)
                 .await
@@ -126,18 +126,21 @@ where
 impl FromRequest for AuthenticatedUser {
     type Config = ();
     type Error = Error;
-    type Future = Result<AuthenticatedUser, Error>;
+    type Future = futures::future::LocalBoxFuture<'static, Result<AuthenticatedUser, Error>>;
 
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
         let root = &req.app_data::<AppState>().unwrap().config.web_root;
         let login_url = format!("{}/login", root);
 
-        req.extensions()
+        let res = req
+            .extensions()
             .get::<AuthenticatedUser>()
             .map(Clone::clone)
             .ok_or_else(|| {
                 let resp = HttpResponse::Found().header(&LOCATION, login_url).finish();
                 error::InternalError::from_response("Please login", resp).into()
-            })
+            });
+
+        async { res }.boxed_local()
     }
 }

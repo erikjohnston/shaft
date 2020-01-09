@@ -4,7 +4,7 @@ use actix_http::httpmessage::HttpMessage;
 use actix_service::Service;
 use actix_web::dev::{MessageBody, ServiceRequest, ServiceResponse};
 use actix_web::{self, Error};
-use futures::{Future, IntoFuture};
+use futures::future::{FutureExt, LocalBoxFuture};
 use rand::{thread_rng, Rng};
 use slog::Logger;
 
@@ -22,14 +22,15 @@ impl MiddlewareLogger {
         MiddlewareLogger { logger }
     }
 
-    pub fn wrap<B, S>(
+    pub fn wrap<'a, B, S>(
         &self,
         req: ServiceRequest,
         srv: &mut S,
-    ) -> impl IntoFuture<Item = ServiceResponse<B>, Error = Error>
+    ) -> LocalBoxFuture<'a, Result<ServiceResponse<B>, Error>>
     where
         B: MessageBody,
         S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+        S::Future: 'a,
     {
         let request_id: u32 = thread_rng().gen();
         let logger = self.logger.new(o!(
@@ -43,16 +44,18 @@ impl MiddlewareLogger {
         req.extensions_mut().insert(RequestID(request_id));
         req.extensions_mut().insert(logger);
 
-        srv.call(req).then(move |res| {
-            match res {
-                Ok(ref resp) => {
-                    info!(resp_logger, "Processed request"; "status_code" => resp.status().as_u16())
+        let fut = srv.call(req);
+        async move {
+            match fut.await {
+                Ok(resp) => {
+                    info!(resp_logger, "Processed request"; "status_code" => resp.status().as_u16());
+                    Ok(resp)
                 }
-                Err(ref err) => {
-                    info!(resp_logger, "Processed request"; "err" => format!("{}", err))
+                Err(err) => {
+                    info!(resp_logger, "Processed request"; "err" => format!("{}", err));
+                    Err(err)
                 }
-            };
-            res
-        })
+            }
+        }.boxed_local()
     }
 }

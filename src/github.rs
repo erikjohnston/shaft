@@ -1,6 +1,6 @@
 //! Implements talking to the Github API
 
-use futures::{Future, Stream};
+use bytes::buf::BufExt as _;
 use hyper;
 use hyper::{Body, Request, StatusCode};
 use serde::de::DeserializeOwned;
@@ -34,12 +34,12 @@ pub enum HttpError {
 
 impl GithubApi {
     /// Exchange received OAuth code with Github.
-    pub fn exchange_oauth_code(
+    pub async fn exchange_oauth_code(
         &self,
         client_id: &str,
         client_secret: &str,
         code: &str,
-    ) -> Box<dyn Future<Item = GithubCallbackAuthResponse, Error = HttpError>> {
+    ) -> Result<GithubCallbackAuthResponse, HttpError> {
         let mut gh = Url::parse("https://github.com/login/oauth/access_token").unwrap();
 
         gh.query_pairs_mut()
@@ -47,91 +47,84 @@ impl GithubApi {
             .append_pair("client_secret", client_secret)
             .append_pair("code", code);
 
-        let mut req = Request::post(gh.to_string());
-        req.header(hyper::header::ACCEPT, "application/json");
+        let req = Request::post(gh.to_string()).header(hyper::header::ACCEPT, "application/json");
 
-        let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()));
+        let resp = self
+            .http_client
+            .request(req.body(Body::empty()).unwrap())
+            .await
+            .map_err(|e| HttpError::Http { source: e })?;
 
-        Box::new(f)
+        Ok(parse_resp_as_json(resp).await?)
     }
 
     /// Given a user access token from Github get the user's Github ID and
     /// display name.
-    pub fn get_authenticated_user(
+    pub async fn get_authenticated_user(
         &self,
         token: &str,
-    ) -> Box<dyn Future<Item = GithubUserResponse, Error = HttpError>> {
+    ) -> Result<GithubUserResponse, HttpError> {
         let url = "https://api.github.com/user";
 
-        let mut req = Request::get(url);
-        req.header(hyper::header::ACCEPT, "application/json");
-        req.header(hyper::header::USER_AGENT, "rust shaft");
-        req.header(hyper::header::AUTHORIZATION, format!("token {}", token));
+        let req = Request::get(url)
+            .header(hyper::header::ACCEPT, "application/json")
+            .header(hyper::header::USER_AGENT, "rust shaft")
+            .header(hyper::header::AUTHORIZATION, format!("token {}", token));
 
-        let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()));
+        let resp = self
+            .http_client
+            .request(req.body(Body::empty()).unwrap())
+            .await
+            .map_err(|e| HttpError::Http { source: e })?;
 
-        Box::new(f)
+        Ok(parse_resp_as_json(resp).await?)
     }
 
     /// Check if the Github user with given access token is a member of the org.
-    pub fn get_if_member_of_org(
+    pub async fn get_if_member_of_org(
         &self,
         token: &str,
         org: &str,
-    ) -> Box<dyn Future<Item = Option<GithubOrganizationMembership>, Error = HttpError>> {
+    ) -> Result<Option<GithubOrganizationMembership>, HttpError> {
         let url = format!("https://api.github.com/user/memberships/orgs/{}", org);
 
-        let mut req = Request::get(url);
-        req.header(hyper::header::ACCEPT, "application/json");
-        req.header(hyper::header::USER_AGENT, "rust shaft");
-        req.header(hyper::header::AUTHORIZATION, format!("token {}", token));
+        let req = Request::get(url)
+            .header(hyper::header::ACCEPT, "application/json")
+            .header(hyper::header::USER_AGENT, "rust shaft")
+            .header(hyper::header::AUTHORIZATION, format!("token {}", token));
 
-        let f = parse_resp_as_json(self.http_client.request(req.body(Body::empty()).unwrap()))
-            .map(Some)
-            .or_else(|err| {
-                if let HttpError::Status { code } = err {
-                    if code == StatusCode::FORBIDDEN {
-                        Ok(None)
-                    } else {
-                        Err(err)
-                    }
-                } else {
-                    Err(err)
-                }
-            });
+        let resp = self
+            .http_client
+            .request(req.body(Body::empty()).unwrap())
+            .await
+            .map_err(|e| HttpError::Http { source: e })?;
 
-        Box::new(f)
+        match parse_resp_as_json(resp).await {
+            Ok(r) => Ok(Some(r)),
+            Err(HttpError::Status { code }) if code == StatusCode::FORBIDDEN => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 }
 
 /// Parse HTTP response into JSON object.
-fn parse_resp_as_json<F, C>(resp: F) -> Box<dyn Future<Item = C, Error = HttpError>>
+async fn parse_resp_as_json<C>(resp: hyper::Response<Body>) -> Result<C, HttpError>
 where
-    F: Future<Item = hyper::Response<Body>, Error = hyper::Error> + 'static,
     C: DeserializeOwned + 'static,
 {
-    let f = resp
-        .map_err(|e| HttpError::Http { source: e })
-        .and_then(|res| -> Result<_, HttpError> {
-            if res.status().is_success() {
-                Ok(res)
-            } else {
-                Err(HttpError::Status { code: res.status() })
-            }
-        })
-        .and_then(|res| {
-            // TODO: Limit max amount read
-            res.into_body()
-                .concat2()
-                .map_err(|e| HttpError::Http { source: e })
-        })
-        .and_then(|vec| -> Result<C, _> {
-            let res = serde_json::from_slice(&vec[..]).context(DeserializeError)?;
-
-            Ok(res)
+    if !resp.status().is_success() {
+        return Err(HttpError::Status {
+            code: resp.status(),
         });
+    }
 
-    Box::new(f)
+    let body = hyper::body::aggregate(resp)
+        .await
+        .map_err(|e| HttpError::Http { source: e })?;
+
+    let res = serde_json::from_reader(body.reader()).context(DeserializeError)?;
+
+    Ok(res)
 }
 
 /// Github API response to `/login/oauth/access_token`

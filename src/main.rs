@@ -133,7 +133,7 @@ fn main() {
     let cpu_pool = CpuPool::new_num_cpus();
 
     // Set up HTTPS enabled HTTP client
-    let https = HttpsConnector::new(4).expect("TLS initialization failed");
+    let https = HttpsConnector::new();
     let http_client = hyper::Client::builder().build::<_, hyper::Body>(https);
 
     // Holds the state for the shared state of the app. Gets cloned to each thread.
@@ -146,14 +146,15 @@ fn main() {
     };
 
     // Set up HTTP server
-    let sys = actix_rt::System::new("shaft"); // Need to set up an actix system first.
+    let mut sys = actix_rt::System::new("shaft"); // Need to set up an actix system first.
 
-    let logger_clone = logger.clone();
+    let logger_middleware = MiddlewareLogger::new(logger.clone());
 
-    actix_web::HttpServer::new(move || {
+    let http_server = actix_web::HttpServer::new(move || {
         // This gets called in each thread to set up the HTTP handlers
 
-        let logger_middleware = MiddlewareLogger::new(logger_clone.clone());
+        let logger_middleware = logger_middleware.clone();
+
         actix_web::App::new()
             .data(app_state.clone())
             .wrap(AuthenticateUser::new(app_state.database.clone()))
@@ -161,8 +162,7 @@ fn main() {
             .configure(|config| register_servlets(config, &app_state))
     })
     .bind(addr)
-    .unwrap()
-    .start();
+    .unwrap();
 
     // If we need to daemonize do so *just* before starting the event loop
     if let Some(daemonize_settings) = settings.daemonize {
@@ -174,7 +174,7 @@ fn main() {
 
     // Start the event loop.
     info!(logger, "Started server on {}", settings.bind);
-    let _ = sys.run();
+    let _ = sys.block_on(async move { http_server.run().await });
 }
 
 /// Attempts to load the template into handlebars instance.

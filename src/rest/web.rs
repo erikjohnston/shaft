@@ -4,7 +4,6 @@ use actix_http::httpmessage::HttpMessage;
 use actix_web::web::ServiceConfig;
 use actix_web::{error, web, Error, HttpRequest, HttpResponse};
 use chrono;
-use futures::{Future, IntoFuture};
 use hyper::header::{LOCATION, SET_COOKIE};
 use itertools::Itertools;
 
@@ -16,130 +15,122 @@ use slog::Logger;
 /// Register servlets with HTTP app
 pub fn register_servlets(config: &mut ServiceConfig) {
     config
-        .route("/", web::get().to_async(root))
-        .route("/home", web::get().to_async(get_balances))
-        .route("/login", web::get().to_async(show_login))
-        .route("/logout", web::post().to_async(logout))
-        .route("/transactions", web::get().to_async(get_transactions))
-        .route("/shaft", web::post().to_async(shaft_user))
-        .route("/health", web::get().to(|| "OK"));
+        .route("/", web::get().to(root))
+        .route("/home", web::get().to(get_balances))
+        .route("/login", web::get().to(show_login))
+        .route("/logout", web::post().to(logout))
+        .route("/transactions", web::get().to(get_transactions))
+        .route("/shaft", web::post().to(shaft_user))
+        .route("/health", web::get().to(|| async { "OK" }));
 }
 
 /// The top level root. Redirects to /home or /login.
-fn root(
-    (req, state): (HttpRequest, web::Data<AppState>),
-) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+async fn root((req, state): (HttpRequest, web::Data<AppState>)) -> Result<HttpResponse, Error> {
     if let Some(token) = req.cookie("token") {
-        let f = state
+        let user_opt = state
             .database
             .get_user_from_token(token.value().to_string())
-            .map_err(error::ErrorInternalServerError)
-            .map(move |user_opt| {
-                if user_opt.is_some() {
-                    HttpResponse::Found().header(LOCATION, "home").finish()
-                } else {
-                    HttpResponse::Found().header(LOCATION, "login").finish()
-                }
-            })
-            .map_err(error::ErrorInternalServerError);
-
-        Box::new(f)
+            .await
+            .map_err(error::ErrorInternalServerError)?;
+        if user_opt.is_some() {
+            Ok(HttpResponse::Found().header(LOCATION, "home").finish())
+        } else {
+            Ok(HttpResponse::Found().header(LOCATION, "login").finish())
+        }
     } else {
-        let f = futures::future::ok(HttpResponse::Found().header(LOCATION, "login").finish());
-
-        Box::new(f)
+        Ok(HttpResponse::Found().header(LOCATION, "login").finish())
     }
 }
 
 /// Get home page with current balances of all users.
-fn get_balances(
+async fn get_balances(
     (user, state): (AuthenticatedUser, web::Data<AppState>),
-) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+) -> Result<HttpResponse, Error> {
     let hb = state.handlebars.clone();
-    let f = state
+    let all_users = state
         .database
         .get_all_users()
-        .map_err(error::ErrorInternalServerError)
-        .and_then(move |all_users| {
-            let mut vec = all_users.values().collect_vec();
-            vec.sort_by_key(|e| e.balance);
+        .await
+        .map_err(error::ErrorInternalServerError)?;
+    let mut vec = all_users.values().collect_vec();
+    vec.sort_by_key(|e| e.balance);
 
-            let s = hb
-                .render(
-                    "index",
-                    &json!({
-                        "display_name": &user.display_name,
-                        "balances": vec,
-                    }),
-                )
-                .map_err(|s| error::ErrorInternalServerError(s.to_string()))?;
+    let s = hb
+        .render(
+            "index",
+            &json!({
+                "display_name": &user.display_name,
+                "balances": vec,
+            }),
+        )
+        .map_err(|s| error::ErrorInternalServerError(s.to_string()))?;
 
-            let r = HttpResponse::Ok()
-                .content_type("text/html")
-                .content_length(s.len() as u64)
-                .body(s);
+    let r = HttpResponse::Ok()
+        .content_type("text/html")
+        .content_length(s.len() as u64)
+        .body(s);
 
-            Ok(r)
-        });
-
-    Box::new(f)
+    Ok(r)
 }
 
 /// Get list of recent transcations page.
-fn get_transactions(
+async fn get_transactions(
     (user, state): (AuthenticatedUser, web::Data<AppState>),
-) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+) -> Result<HttpResponse, Error> {
     let hb = state.handlebars.clone();
-    let f = state
+
+    let all_users = state
         .database
         .get_all_users()
-        .join(state.database.get_last_transactions(20))
-        .map_err(error::ErrorInternalServerError)
-        .and_then(move |(all_users, transactions)| {
-            hb.render(
-                "transactions",
-                &json!({
-                    "display_name": &user.display_name,
-                    "transactions": transactions
-                        .into_iter()
-                        .map(|txn| json!({
-                            "amount": txn.amount,
-                            "shafter_id": txn.shafter,
-                            "shafter_name": all_users.get(&txn.shafter)
-                                .map(|u| &u.display_name as &str)
-                                .unwrap_or(&txn.shafter),
-                            "shaftee_id": txn.shaftee,
-                            "shaftee_name": all_users.get(&txn.shaftee)
-                                .map(|u| &u.display_name as &str)
-                                .unwrap_or(&txn.shaftee),
-                            "date": format!("{}", txn.datetime.format("%d %b %Y")),
-                            "reason": txn.reason,
-                        }))
-                        .collect_vec(),
-                }),
-            )
-            .map_err(|s| error::ErrorInternalServerError(s.to_string()))
-        })
-        .map(|s| {
-            HttpResponse::Ok()
-                .content_type("text/html")
-                .content_length(s.len() as u64)
-                .body(s)
-        })
-        .from_err();
+        .await
+        .map_err(error::ErrorInternalServerError)?;
 
-    Box::new(f)
+    let transactions = state
+        .database
+        .get_last_transactions(20)
+        .await
+        .map_err(error::ErrorInternalServerError)?;
+
+    let page = hb
+        .render(
+            "transactions",
+            &json!({
+                "display_name": &user.display_name,
+                "transactions": transactions
+                    .into_iter()
+                    .map(|txn| json!({
+                        "amount": txn.amount,
+                        "shafter_id": txn.shafter,
+                        "shafter_name": all_users.get(&txn.shafter)
+                            .map(|u| &u.display_name as &str)
+                            .unwrap_or(&txn.shafter),
+                        "shaftee_id": txn.shaftee,
+                        "shaftee_name": all_users.get(&txn.shaftee)
+                            .map(|u| &u.display_name as &str)
+                            .unwrap_or(&txn.shaftee),
+                        "date": format!("{}", txn.datetime.format("%d %b %Y")),
+                        "reason": txn.reason,
+                    }))
+                    .collect_vec(),
+            }),
+        )
+        .map_err(|e| error::ErrorInternalServerError(e.to_string()))?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("text/html")
+        .content_length(page.len() as u64)
+        .body(page))
 }
 
 /// Commit a new tranaction request
-fn shaft_user(
+async fn shaft_user(
     (user, req, state, body): (
         AuthenticatedUser,
         HttpRequest,
         web::Data<AppState>,
         web::Form<ShaftUserBody>,
     ),
-) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+) -> Result<HttpResponse, Error> {
     let logger = req
         .extensions()
         .get::<Logger>()
@@ -152,7 +143,7 @@ fn shaft_user(
         reason,
     } = body.0;
 
-    let f = state
+    state
         .database
         .shaft_user(db::Transaction {
             shafter: user.user_id.clone(),
@@ -161,23 +152,21 @@ fn shaft_user(
             datetime: chrono::Utc::now(),
             reason,
         })
-        .map_err(error::ErrorInternalServerError)
-        .map(move |_| {
-            info!(
-                logger, "Shafted user";
-                "other_user" => other_user, "amount" => amount
-            );
+        .await
+        .map_err(error::ErrorInternalServerError)?;
 
-            HttpResponse::Found()
-                .header(LOCATION, ".")
-                .body("Success\n")
-        });
+    info!(
+        logger, "Shafted user";
+        "other_user" => other_user, "amount" => amount
+    );
 
-    Box::new(f)
+    Ok(HttpResponse::Found()
+        .header(LOCATION, ".")
+        .body("Success\n"))
 }
 
 /// Login page.
-fn show_login(state: web::Data<AppState>) -> Result<HttpResponse, Error> {
+async fn show_login(state: web::Data<AppState>) -> Result<HttpResponse, Error> {
     let hb = &state.handlebars;
     let s = hb
         .render("login", &json!({}))
@@ -192,9 +181,7 @@ fn show_login(state: web::Data<AppState>) -> Result<HttpResponse, Error> {
 }
 
 /// Logout user session.
-fn logout(
-    (req, state): (HttpRequest, web::Data<AppState>),
-) -> Box<dyn Future<Item = HttpResponse, Error = Error>> {
+async fn logout((req, state): (HttpRequest, web::Data<AppState>)) -> Result<HttpResponse, Error> {
     let logger = req
         .extensions()
         .get::<Logger>()
@@ -214,12 +201,10 @@ fn logout(
     info!(logger, "Got logout request");
 
     if let Some(token) = req.cookie("token") {
-        Box::new(
-            db.delete_token(token.value().to_string())
-                .map_err(error::ErrorInternalServerError)
-                .map(|_| resp),
-        )
-    } else {
-        Box::new(Ok(resp).into_future())
+        db.delete_token(token.value().to_string())
+            .await
+            .map_err(error::ErrorInternalServerError)?;
     }
+
+    Ok(resp)
 }

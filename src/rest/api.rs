@@ -3,9 +3,7 @@
 use actix_web::web::{Json, ServiceConfig};
 use actix_web::{error::ErrorInternalServerError, web, Error, HttpRequest};
 use chrono;
-use futures::Future;
 use serde::Serialize;
-use snafu::futures01::FutureExt;
 use snafu::ResultExt;
 
 use crate::db;

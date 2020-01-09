@@ -10,10 +10,10 @@ use snafu::Backtrace;
 
 use std::pin::Pin;
 
-mod postgres;
+// mod postgres;
 mod sqlite;
 
-pub use self::postgres::PostgresDatabase;
+// pub use self::postgres::PostgresDatabase;
 pub use self::sqlite::SqliteDatabase;
 
 /// A single transaction between two users.
