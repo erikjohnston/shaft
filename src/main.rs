@@ -173,7 +173,7 @@ fn main() {
     }
 
     // Start the event loop.
-    info!(logger, "Started server on {}", settings.bind);
+    info!(logger, "Started server on http://{}", settings.bind);
     let _ = sys.block_on(async move { http_server.run().await });
 }
 
