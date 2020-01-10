@@ -1985,6 +1985,7 @@ dependencies = [
  "futures-cpupool 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-util 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "handlebars 2.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "http 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.13.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper-tls 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -5,7 +5,6 @@ extern crate clap;
 
 use clap::Arg;
 use daemonize::Daemonize;
-use futures_cpupool::CpuPool;
 use hyper_tls::HttpsConnector;
 use sloggers::Config;
 
@@ -13,7 +12,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::process::exit;
-use std::sync::Arc;
 
 mod db;
 mod error;
@@ -24,7 +22,6 @@ mod settings;
 use rest::{register_servlets, AppConfig, AppState, AuthenticateUser, MiddlewareLogger};
 use settings::Settings;
 
-/// Short hand for our HTTPS enabled outbound HTTP client.
 type HttpClient = hyper::Client<HttpsConnector<hyper::client::HttpConnector>>;
 
 /// Attempts to load and build the handlebars template file.
@@ -92,7 +89,7 @@ fn main() {
     );
 
     // Set up the database
-    let database = Arc::new(db::SqliteDatabase::with_path(settings.database_file));
+    let database = db::SqliteDatabase::with_path(settings.database_file);
 
     // Sanitize the webroot to not end in a trailing slash.
     let web_root = settings.web_root.trim_end_matches('/').to_string();
@@ -107,21 +104,8 @@ fn main() {
         resource_dir: settings.resource_dir.clone(),
     };
 
-    // Thread pool to use mainly for DB
-    let cpu_pool = CpuPool::new_num_cpus();
-
-    // Set up HTTPS enabled HTTP client
-    let https = HttpsConnector::new();
-    let http_client = hyper::Client::builder().build::<_, hyper::Body>(https);
-
     // Holds the state for the shared state of the app. Gets cloned to each thread.
-    let app_state = AppState {
-        database,
-        config: app_config,
-        cpu_pool,
-        handlebars: Arc::new(hb),
-        http_client,
-    };
+    let app_state = AppState::new(app_config, hb, database);
 
     // Set up HTTP server
     let mut sys = actix_rt::System::new("shaft"); // Need to set up an actix system first.

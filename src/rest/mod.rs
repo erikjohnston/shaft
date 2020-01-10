@@ -2,7 +2,10 @@
 
 use actix_web::web::ServiceConfig;
 use chrono;
+use futures_cpupool::CpuPool;
 use handlebars;
+use handlebars::Handlebars;
+use hyper_tls::HttpsConnector;
 use serde::Deserialize;
 use serde_json;
 
@@ -37,6 +40,29 @@ pub struct AppState {
     pub cpu_pool: futures_cpupool::CpuPool,
     pub handlebars: Arc<handlebars::Handlebars>,
     pub http_client: HttpClient,
+}
+
+impl AppState {
+    pub fn new(
+        config: AppConfig,
+        handlebars: Handlebars,
+        database: impl db::Database + 'static,
+    ) -> AppState {
+        // Thread pool to use mainly for DB
+        let cpu_pool = CpuPool::new_num_cpus();
+
+        // Set up HTTPS enabled HTTP client
+        let https = HttpsConnector::new();
+        let http_client = hyper::Client::builder().build::<_, hyper::Body>(https);
+
+        AppState {
+            database: Arc::new(database),
+            http_client,
+            cpu_pool,
+            config,
+            handlebars: Arc::new(handlebars),
+        }
+    }
 }
 
 /// Read only config for the app
