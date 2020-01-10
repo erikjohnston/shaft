@@ -2,21 +2,38 @@
 
 use bytes::buf::BufExt as _;
 use hyper;
-use hyper::{Body, Request, StatusCode};
+use hyper::{Body, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
+use std::fmt::Debug;
+use std::future::Future;
+
 use crate::HttpClient;
+
+pub trait GenericHttpClient: Debug + Clone {
+    type ResponseFuture: Future<Output = hyper::Result<Response<hyper::Body>>>;
+
+    fn request(&self, request: Request<hyper::Body>) -> Self::ResponseFuture;
+}
+
+impl GenericHttpClient for HttpClient {
+    type ResponseFuture = hyper::client::ResponseFuture;
+
+    fn request(&self, request: Request<hyper::Body>) -> Self::ResponseFuture {
+        self.request(request)
+    }
+}
 
 /// Used to talk to the Github API.
 ///
 /// Can safely be cloned.
 #[derive(Debug, Clone)]
-pub struct GithubApi {
-    pub http_client: HttpClient,
+pub struct GithubApi<G: GenericHttpClient> {
+    pub http_client: G,
 }
 
 /// An error occured talking to Github.
@@ -33,7 +50,10 @@ pub enum HttpError {
     Status { code: StatusCode },
 }
 
-impl GithubApi {
+impl<G> GithubApi<G>
+where
+    G: GenericHttpClient,
+{
     /// Exchange received OAuth code with Github.
     pub async fn exchange_oauth_code(
         &self,
