@@ -1,6 +1,7 @@
 use chrono;
 use chrono::TimeZone;
-use futures::{compat::Future01CompatExt, Future, FutureExt};
+use futures::future::LocalBoxFuture;
+use futures::{compat::Future01CompatExt, FutureExt};
 use futures_cpupool::CpuPool;
 use linear_map::LinearMap;
 use r2d2;
@@ -11,7 +12,7 @@ use rusqlite;
 use snafu::ResultExt;
 
 use std::path::Path;
-use std::pin::Pin;
+
 use std::sync::Arc;
 
 use crate::db::{ConnectionPoolError, Database, DatabaseError, SqliteError, Transaction, User};
@@ -45,7 +46,7 @@ impl Database for SqliteDatabase {
     fn get_user_by_github_id(
         &self,
         github_user_id: String,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<Option<String>, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -78,7 +79,7 @@ impl Database for SqliteDatabase {
         &self,
         github_user_id: String,
         display_name: String,
-    ) -> Pin<Box<dyn Future<Output = Result<String, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<String, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -108,7 +109,7 @@ impl Database for SqliteDatabase {
     fn create_token_for_user(
         &self,
         user_id: String,
-    ) -> Pin<Box<dyn Future<Output = Result<String, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<String, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -129,10 +130,7 @@ impl Database for SqliteDatabase {
             .boxed()
     }
 
-    fn delete_token(
-        &self,
-        token: String,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DatabaseError>>>> {
+    fn delete_token(&self, token: String) -> LocalBoxFuture<'static, Result<(), DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -151,7 +149,7 @@ impl Database for SqliteDatabase {
     fn get_user_from_token(
         &self,
         token: String,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<User>, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<Option<User>, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -205,7 +203,7 @@ impl Database for SqliteDatabase {
     fn get_balance_for_user(
         &self,
         user: String,
-    ) -> Pin<Box<dyn Future<Output = Result<i64, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<i64, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -236,7 +234,7 @@ impl Database for SqliteDatabase {
 
     fn get_all_users(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<LinearMap<String, User>, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<LinearMap<String, User>, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -287,7 +285,7 @@ impl Database for SqliteDatabase {
     fn shaft_user(
         &self,
         transaction: Transaction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<(), DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool
@@ -333,7 +331,7 @@ impl Database for SqliteDatabase {
     fn get_last_transactions(
         &self,
         limit: u32,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<Transaction>, DatabaseError>>>> {
+    ) -> LocalBoxFuture<'static, Result<Vec<Transaction>, DatabaseError>> {
         let db_pool = self.db_pool.clone();
 
         self.cpu_pool

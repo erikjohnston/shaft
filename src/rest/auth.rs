@@ -5,14 +5,12 @@ use actix_http::httpmessage::HttpMessage;
 use actix_service::{Service, Transform};
 use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
 use actix_web::{self, Error, FromRequest, HttpRequest, HttpResponse};
-use futures::future::ok;
-use futures::Future;
+use futures::future::{ok, LocalBoxFuture};
 use futures::FutureExt;
 use hyper::header::LOCATION;
 use slog::Logger;
 
 use std::cell::RefCell;
-use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -44,7 +42,7 @@ where
     type Error = Error;
     type InitError = ();
     type Transform = AuthenticateUserService<S>;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Transform, Self::InitError>>>>;
+    type Future = LocalBoxFuture<'static, Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
         ok(AuthenticateUserService {
@@ -79,7 +77,7 @@ where
     type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.borrow_mut().poll_ready(ctx)
@@ -137,7 +135,7 @@ impl FromRequest for AuthenticatedUser {
             .get::<AuthenticatedUser>()
             .map(Clone::clone)
             .ok_or_else(|| {
-                let resp = HttpResponse::Found().header(&LOCATION, login_url).finish();
+                let resp = HttpResponse::Found().header(LOCATION, login_url).finish();
                 error::InternalError::from_response("Please login", resp).into()
             });
 
