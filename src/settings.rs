@@ -1,5 +1,7 @@
 //! The configuration settings definitions.
 
+use serde::Deserialize;
+
 /// Settings for github login. To configure a github OAuth app must have been
 /// provisioned.
 #[derive(Debug, Deserialize)]

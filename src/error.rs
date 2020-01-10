@@ -1,5 +1,5 @@
 use actix_web::error::ResponseError;
-use snafu::Backtrace;
+use snafu::{Backtrace, Snafu};
 
 use crate::{db, github};
 

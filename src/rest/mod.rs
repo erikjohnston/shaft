@@ -3,6 +3,7 @@
 use actix_web::web::ServiceConfig;
 use chrono;
 use handlebars;
+use serde::Deserialize;
 use serde_json;
 
 use std::sync::Arc;

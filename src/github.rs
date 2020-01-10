@@ -4,8 +4,9 @@ use bytes::buf::BufExt as _;
 use hyper;
 use hyper::{Body, Request, StatusCode};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json;
-use snafu::ResultExt;
+use snafu::{ResultExt, Snafu};
 use url::Url;
 
 use crate::HttpClient;

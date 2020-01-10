@@ -7,7 +7,8 @@ use linear_map::LinearMap;
 use r2d2;
 use rusqlite;
 use serde;
-use snafu::Backtrace;
+use serde::Serialize;
+use snafu::{Backtrace, Snafu};
 
 // mod postgres;
 mod sqlite;

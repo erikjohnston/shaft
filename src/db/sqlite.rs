@@ -9,6 +9,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use rusqlite;
+use rusqlite::params;
 use snafu::ResultExt;
 
 use std::path::Path;

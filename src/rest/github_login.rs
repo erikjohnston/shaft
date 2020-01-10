@@ -4,6 +4,7 @@ use actix_web::web::ServiceConfig;
 use actix_web::{error, web, Error, HttpResponse};
 use futures_util::future::TryFutureExt;
 use hyper;
+use serde::Deserialize;
 use url::Url;
 
 use crate::github;

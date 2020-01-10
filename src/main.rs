@@ -1,13 +1,5 @@
 #[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
-extern crate snafu;
-#[macro_use]
 extern crate slog;
-#[macro_use]
-extern crate rusqlite;
 #[macro_use]
 extern crate clap;
 
@@ -49,7 +41,7 @@ macro_rules! load_template {
 fn main() {
     // Load settings, first by looking at command line options for config files
     // to look in.
-    let matches = app_from_crate!()
+    let matches = clap::app_from_crate!()
         .arg(
             Arg::with_name("config")
                 .short("c")

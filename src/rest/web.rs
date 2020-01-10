@@ -6,6 +6,7 @@ use actix_web::{error, web, Error, HttpRequest, HttpResponse};
 use chrono;
 use hyper::header::{LOCATION, SET_COOKIE};
 use itertools::Itertools;
+use serde_json::json;
 
 use crate::db;
 use crate::rest::{AppState, AuthenticatedUser, ShaftUserBody};
