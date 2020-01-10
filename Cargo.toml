@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4.0"
-config = "0.9.0"
+config = "0.10.0"
 daemonize = "0.4.0"
 futures-cpupool = "0.1.5"
 handlebars = "2.0.1"
@@ -16,9 +16,9 @@ itertools = "0.8.0"
 openssl = "0.10"
 quick-error = "1.2.0"
 r2d2 = "0.8.0"
-r2d2_sqlite = "0.12.0"
+r2d2_sqlite = "0.13.0"
 rand = "0.7.0"
-rusqlite = "0.20.0"
+rusqlite = "0.21.0"
 serde = "1.0.8"
 serde_derive = "1.0.8"
 serde_json = "1.0.2"
@@ -35,8 +35,8 @@ actix-rt = "1.0.0"
 actix-files = "0.2.0"
 actix-service = "1.0.0"
 actix-http = "1.0.0"
-postgres = "0.15.2"
-r2d2_postgres = "0.14.0"
+postgres = "0.17.0"
+r2d2_postgres = "0.16.0"
 futures-util = "0.3.1"
 bytes = "0.5.3"
 
@@ -53,8 +53,8 @@ features = ["serde_impl"]
 version = "1.2.0"
 
 [dependencies.snafu]
-features = ["futures-01"]
-version = "0.4.0"
+features = ["futures"]
+version = "0.6.0"
 
 [features]
 bundled = ["openssl/vendored", "rusqlite/bundled"]
