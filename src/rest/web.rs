@@ -52,6 +52,7 @@ async fn get_balances(
         .get_all_users()
         .await
         .map_err(error::ErrorInternalServerError)?;
+
     let mut vec = all_users.values().collect_vec();
     vec.sort_by_key(|e| e.balance);
 
@@ -77,8 +78,6 @@ async fn get_balances(
 async fn get_transactions(
     (user, state): (AuthenticatedUser, web::Data<AppState>),
 ) -> Result<HttpResponse, Error> {
-    let hb = state.handlebars.clone();
-
     let all_users = state
         .database
         .get_all_users()
@@ -91,7 +90,8 @@ async fn get_transactions(
         .await
         .map_err(error::ErrorInternalServerError)?;
 
-    let page = hb
+    let page = state
+        .handlebars
         .render(
             "transactions",
             &json!({

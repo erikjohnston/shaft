@@ -50,14 +50,8 @@ async fn github_callback(
         return Ok(res);
     }
 
-    let db = state.database.clone();
-    let db2 = state.database.clone();
-
     let http_client = state.http_client.clone();
     let gh_api = github::GithubApi { http_client };
-
-    let web_root = state.config.web_root.clone();
-    let required_org = state.config.required_org.clone();
 
     let callback = gh_api
         .exchange_oauth_code(
@@ -76,7 +70,8 @@ async fn github_callback(
     let github_user_id = user.login.clone();
     let github_name = user.name.clone();
 
-    let user_id_opt = db
+    let user_id_opt = state
+        .database
         .get_user_by_github_id(user.login)
         .map_err(error::ErrorInternalServerError)
         .await?;
@@ -85,23 +80,26 @@ async fn github_callback(
         user_id
     } else {
         let opt = gh_api
-            .get_if_member_of_org(&callback.access_token, &required_org)
+            .get_if_member_of_org(&callback.access_token, &state.config.required_org)
             .map_err(error::ErrorInternalServerError)
             .await?;
 
         if opt.is_some() {
-            db.add_user_by_github_id(
-                github_user_id.clone(),
-                github_name.unwrap_or(github_user_id),
-            )
-            .map_err(error::ErrorInternalServerError)
-            .await?
+            state
+                .database
+                .add_user_by_github_id(
+                    github_user_id.clone(),
+                    github_name.unwrap_or(github_user_id),
+                )
+                .map_err(error::ErrorInternalServerError)
+                .await?
         } else {
             return Err(error::ErrorForbidden("user not in org"));
         }
     };
 
-    let token = db2
+    let token = state
+        .database
         .create_token_for_user(user_id)
         .map_err(error::ErrorInternalServerError)
         .await?;
@@ -115,6 +113,9 @@ async fn github_callback(
                 get_expires_string(),
             ),
         )
-        .header(hyper::header::LOCATION, format!("{}/", web_root))
+        .header(
+            hyper::header::LOCATION,
+            format!("{}/", state.config.web_root),
+        )
         .finish())
 }

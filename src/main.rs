@@ -20,7 +20,6 @@ use sloggers::Config;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
-use std::net::SocketAddr;
 use std::process::exit;
 use std::sync::Arc;
 
@@ -89,19 +88,6 @@ fn main() {
     // Set up logging immediately.
     let logger = settings.log.build_logger().unwrap();
 
-    let addr: SocketAddr = match settings.bind.parse() {
-        Ok(a) => a,
-        Err(err) => {
-            crit!(
-                logger,
-                "Failed to parse bind addr {}: {}",
-                settings.bind,
-                err
-            );
-            exit(1)
-        }
-    };
-
     // Load and build the templates.
     let mut hb = handlebars::Handlebars::new();
     load_template!(logger, hb, &settings.resource_dir, "index");
@@ -161,7 +147,7 @@ fn main() {
             .wrap_fn(move |req, srv| logger_middleware.wrap(req, srv))
             .configure(|config| register_servlets(config, &app_state))
     })
-    .bind(addr)
+    .bind(&settings.bind)
     .unwrap();
 
     // If we need to daemonize do so *just* before starting the event loop

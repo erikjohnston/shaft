@@ -9,8 +9,6 @@ use rusqlite;
 use serde;
 use snafu::Backtrace;
 
-
-
 // mod postgres;
 mod sqlite;
 
