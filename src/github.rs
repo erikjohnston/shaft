@@ -1,8 +1,10 @@
 //! Implements talking to the Github API
 
 use bytes::buf::BufExt as _;
+use futures::future::{BoxFuture, FutureExt, TryFutureExt};
 use hyper;
 use hyper::{Body, Request, Response, StatusCode};
+use mockall::automock;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -10,21 +12,38 @@ use snafu::{ResultExt, Snafu};
 use url::Url;
 
 use std::fmt::Debug;
-use std::future::Future;
+use std::sync::Arc;
 
 use crate::HttpClient;
 
-pub trait GenericHttpClient: Debug + Clone {
-    type ResponseFuture: Future<Output = hyper::Result<Response<hyper::Body>>>;
-
-    fn request(&self, request: Request<hyper::Body>) -> Self::ResponseFuture;
+#[automock]
+pub trait GenericHttpClient: Send + Sync {
+    fn request(
+        &self,
+        request: Request<Body>,
+    ) -> BoxFuture<'static, Result<Response<Body>, HttpError>>;
 }
 
 impl GenericHttpClient for HttpClient {
-    type ResponseFuture = hyper::client::ResponseFuture;
-
-    fn request(&self, request: Request<hyper::Body>) -> Self::ResponseFuture {
+    fn request(
+        &self,
+        request: Request<Body>,
+    ) -> BoxFuture<'static, Result<Response<Body>, HttpError>> {
         self.request(request)
+            .map_err(|source| HttpError::Hyper { source })
+            .boxed()
+    }
+}
+
+impl<T> GenericHttpClient for Arc<T>
+where
+    T: GenericHttpClient + ?Sized,
+{
+    fn request(
+        &self,
+        request: Request<Body>,
+    ) -> BoxFuture<'static, Result<Response<Body>, HttpError>> {
+        self.as_ref().request(request).boxed()
     }
 }
 
@@ -44,7 +63,9 @@ pub enum HttpError {
     DeserializeError { source: serde_json::Error },
     /// HTTP request failed/
     #[snafu(display("Failed to send request to GitHub: {}", source))]
-    Http { source: hyper::Error },
+    Hyper { source: hyper::Error },
+    #[snafu(display("Failed to send request to GitHub: {}", source))]
+    Http { source: http::Error },
     /// Got non-2xx response.
     #[snafu(display("Got non-200 response from GitHub: {}", code))]
     Status { code: StatusCode },
@@ -73,8 +94,7 @@ where
         let resp = self
             .http_client
             .request(req.body(Body::empty()).unwrap())
-            .await
-            .map_err(|e| HttpError::Http { source: e })?;
+            .await?;
 
         Ok(parse_resp_as_json(resp).await?)
     }
@@ -95,8 +115,7 @@ where
         let resp = self
             .http_client
             .request(req.body(Body::empty()).unwrap())
-            .await
-            .map_err(|e| HttpError::Http { source: e })?;
+            .await?;
 
         Ok(parse_resp_as_json(resp).await?)
     }
@@ -117,8 +136,7 @@ where
         let resp = self
             .http_client
             .request(req.body(Body::empty()).unwrap())
-            .await
-            .map_err(|e| HttpError::Http { source: e })?;
+            .await?;
 
         match parse_resp_as_json(resp).await {
             Ok(r) => Ok(Some(r)),
@@ -141,7 +159,7 @@ where
 
     let body = hyper::body::aggregate(resp)
         .await
-        .map_err(|e| HttpError::Http { source: e })?;
+        .map_err(|e| HttpError::Hyper { source: e })?;
 
     let res = serde_json::from_reader(body.reader()).context(DeserializeError)?;
 

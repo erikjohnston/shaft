@@ -13,11 +13,11 @@ use std::fs::File;
 use std::io::Read;
 use std::process::exit;
 
-mod db;
-mod error;
-mod github;
-mod rest;
-mod settings;
+pub mod db;
+pub mod error;
+pub mod github;
+pub mod rest;
+pub mod settings;
 
 use rest::{register_servlets, AppConfig, AppState, AuthenticateUser, MiddlewareLogger};
 use settings::Settings;
@@ -119,6 +119,7 @@ fn main() {
 
         actix_web::App::new()
             .data(app_state.clone())
+            .app_data(app_state.clone())
             .wrap(AuthenticateUser::new(app_state.database.clone()))
             .wrap_fn(move |req, srv| logger_middleware.wrap(req, srv))
             .configure(|config| register_servlets(config, &app_state))

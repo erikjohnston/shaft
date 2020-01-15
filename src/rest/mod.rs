@@ -12,7 +12,6 @@ use serde_json;
 use std::sync::Arc;
 
 use crate::db;
-use crate::HttpClient;
 
 mod api;
 mod auth;
@@ -20,6 +19,8 @@ mod github_login;
 mod logger;
 mod static_files;
 mod web;
+
+use crate::github::GenericHttpClient;
 
 pub use self::auth::{AuthenticateUser, AuthenticatedUser};
 pub use self::logger::MiddlewareLogger;
@@ -39,7 +40,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub cpu_pool: futures_cpupool::CpuPool,
     pub handlebars: Arc<handlebars::Handlebars>,
-    pub http_client: HttpClient,
+    pub http_client: Arc<dyn GenericHttpClient>,
 }
 
 impl AppState {
@@ -57,7 +58,25 @@ impl AppState {
 
         AppState {
             database: Arc::new(database),
-            http_client,
+            http_client: Arc::new(http_client),
+            cpu_pool,
+            config,
+            handlebars: Arc::new(handlebars),
+        }
+    }
+
+    pub fn with_http_client(
+        config: AppConfig,
+        handlebars: Handlebars,
+        database: impl db::Database + 'static,
+        http_client: impl GenericHttpClient + 'static,
+    ) -> AppState {
+        // Thread pool to use mainly for DB
+        let cpu_pool = CpuPool::new_num_cpus();
+
+        AppState {
+            database: Arc::new(database),
+            http_client: Arc::new(http_client),
             cpu_pool,
             config,
             handlebars: Arc::new(handlebars),

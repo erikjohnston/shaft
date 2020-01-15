@@ -7,7 +7,9 @@ use hyper;
 use serde::Deserialize;
 use url::Url;
 
-use crate::github;
+use std::sync::Arc;
+
+use crate::github::{GenericHttpClient, GithubApi};
 use crate::rest::{get_expires_string, AppState};
 
 /// Register servlets with HTTP app
@@ -52,7 +54,7 @@ async fn github_callback(
     }
 
     let http_client = state.http_client.clone();
-    let gh_api = github::GithubApi { http_client };
+    let gh_api: GithubApi<Arc<dyn GenericHttpClient>> = GithubApi { http_client };
 
     let callback = gh_api
         .exchange_oauth_code(

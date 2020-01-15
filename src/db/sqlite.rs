@@ -41,6 +41,15 @@ impl SqliteDatabase {
             db_pool: Arc::new(pool),
         }
     }
+
+    /// Runs the given statements synchronously
+    pub fn run_statements(&self, stmts: &str) -> Result<(), DatabaseError> {
+        let conn = self.db_pool.get().context(ConnectionPoolError)?;
+
+        conn.execute_batch(stmts).context(SqliteError)?;
+
+        Ok(())
+    }
 }
 
 impl Database for SqliteDatabase {
