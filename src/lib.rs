@@ -7,7 +7,7 @@ use hyper_tls::HttpsConnector;
 type HttpClient = hyper::Client<HttpsConnector<hyper::client::HttpConnector>>;
 
 pub mod db;
-mod error;
+pub mod error;
 pub mod github;
 pub mod rest;
-mod settings;
+pub mod settings;

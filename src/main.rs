@@ -5,7 +5,6 @@ extern crate clap;
 
 use clap::Arg;
 use daemonize::Daemonize;
-use hyper_tls::HttpsConnector;
 use sloggers::Config;
 
 use std::error::Error;
@@ -13,16 +12,12 @@ use std::fs::File;
 use std::io::Read;
 use std::process::exit;
 
-pub mod db;
-pub mod error;
-pub mod github;
-pub mod rest;
-pub mod settings;
-
-use rest::{register_servlets, AppConfig, AppState, AuthenticateUser, MiddlewareLogger};
-use settings::Settings;
-
-type HttpClient = hyper::Client<HttpsConnector<hyper::client::HttpConnector>>;
+use shaft::db::SqliteDatabase;
+use shaft::rest::{
+    format_pence_as_pounds_helper, register_servlets, AppConfig, AppState, AuthenticateUser,
+    MiddlewareLogger,
+};
+use shaft::settings::Settings;
 
 /// Attempts to load and build the handlebars template file.
 macro_rules! load_template {
@@ -83,13 +78,10 @@ fn main() {
     load_template!(logger, hb, &settings.resource_dir, "login");
     load_template!(logger, hb, &settings.resource_dir, "transactions");
     load_template!(logger, hb, &settings.resource_dir, "base");
-    hb.register_helper(
-        "pence-as-pounds",
-        Box::new(rest::format_pence_as_pounds_helper),
-    );
+    hb.register_helper("pence-as-pounds", Box::new(format_pence_as_pounds_helper));
 
     // Set up the database
-    let database = db::SqliteDatabase::with_path(settings.database_file);
+    let database = SqliteDatabase::with_path(settings.database_file);
 
     // Sanitize the webroot to not end in a trailing slash.
     let web_root = settings.web_root.trim_end_matches('/').to_string();
