@@ -125,6 +125,7 @@ async fn test_github_login() {
     );
 }
 
+/// Test the github callback API and that tokens are correctly exchanged.
 #[actix_rt::test]
 async fn test_github_callback() {
     let mut mock_http_client = MockGenericHttpClient::new();
@@ -251,6 +252,92 @@ async fn test_github_callback() {
         response.status(),
         200,
         "Non-200 response: {:?}. body: {}",
+        response,
+        std::str::from_utf8(&body).expect("valid utf8 response")
+    );
+}
+
+/// Test the github callback API correctly denies people from the wrong org.
+#[actix_rt::test]
+async fn test_github_callback_wrong_org() {
+    let mut mock_http_client = MockGenericHttpClient::new();
+
+    mock_http_client
+        .expect_request()
+        .withf(|req: &Request<Body>| {
+            // TODO: Check url and query string.
+            req.method() == "POST" && req.uri().path() == "/login/oauth/access_token"
+        })
+        .returning(
+            |_| -> BoxFuture<'static, Result<Response<Body>, HttpError>> {
+                future::ready(
+                    Response::builder().status(200).body(
+                        serde_json::to_string(&json!({
+                            "access_token": "fake_token",
+                            "scope": "fake_scope",
+                        }))
+                        .unwrap()
+                        .into(),
+                    ),
+                )
+                .map_err(|source| HttpError::Http { source })
+                .boxed()
+            },
+        );
+
+    mock_http_client
+        .expect_request()
+        .withf(|req: &Request<Body>| {
+            // TODO: Check url and query string.
+            req.method() == "GET" && req.uri().path() == "/user"
+        })
+        .returning(
+            |_| -> BoxFuture<'static, Result<Response<Body>, HttpError>> {
+                future::ready(
+                    Response::builder().status(200).body(
+                        serde_json::to_string(&json!({
+                            "login": "fake_login",
+                            "name": "fake_name",
+                        }))
+                        .unwrap()
+                        .into(),
+                    ),
+                )
+                .map_err(|source| HttpError::Http { source })
+                .boxed()
+            },
+        );
+
+    mock_http_client
+        .expect_request()
+        .withf(|req: &Request<Body>| {
+            // TODO: Check url and query string.
+            req.method() == "GET" && req.uri().path() == "/user/memberships/orgs/fake_org"
+        })
+        .returning(
+            |_| -> BoxFuture<'static, Result<Response<Body>, HttpError>> {
+                future::ready(
+                    Response::builder()
+                        .status(403)
+                        .body(serde_json::to_string(&json!({})).unwrap().into()),
+                )
+                .map_err(|source| HttpError::Http { source })
+                .boxed()
+            },
+        );
+
+    let (srv, _) = setup_app(Some(mock_http_client));
+
+    // Check that the client gets redirected to the right github page.
+    let req = srv.get("/github/callback?code=1234&state=fake_state");
+    let mut response = req.send().await.unwrap();
+    let body = response.body().await.unwrap();
+
+    // We should get redirected back to root.
+    assert_eq!(
+        response.status(),
+        403,
+        "Non-403 response: {:?}. body: {}",
         response,
         std::str::from_utf8(&body).expect("valid utf8 response")
     );
