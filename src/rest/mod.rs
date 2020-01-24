@@ -39,14 +39,14 @@ pub struct AppState {
     pub database: Arc<dyn db::Database>,
     pub config: AppConfig,
     pub cpu_pool: futures_cpupool::CpuPool,
-    pub handlebars: Arc<handlebars::Handlebars>,
+    pub handlebars: Arc<handlebars::Handlebars<'static>>,
     pub http_client: Arc<dyn GenericHttpClient>,
 }
 
 impl AppState {
     pub fn new(
         config: AppConfig,
-        handlebars: Handlebars,
+        handlebars: Handlebars<'static>,
         database: impl db::Database + 'static,
     ) -> AppState {
         // Thread pool to use mainly for DB
@@ -67,7 +67,7 @@ impl AppState {
 
     pub fn with_http_client(
         config: AppConfig,
-        handlebars: Handlebars,
+        handlebars: Handlebars<'static>,
         database: impl db::Database + 'static,
         http_client: impl GenericHttpClient + 'static,
     ) -> AppState {
